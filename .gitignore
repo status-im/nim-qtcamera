@@ -1,0 +1,8 @@
+.deps/
+nimcache/
+*.out
+tests/t*
+!tests/t*.nim
+!tests/testutils.nim
+examples/**/main
+.superpowers/
