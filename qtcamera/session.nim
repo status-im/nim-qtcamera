@@ -19,6 +19,9 @@ const
 type
   StateCallback* = proc() {.gcsafe, raises: [].}
 
+  StateCallbackBox = ref object
+    cb: StateCallback
+
   CameraSessionObj = object
     session: QMediaCaptureSession
     camera: QCamera
@@ -28,17 +31,22 @@ type
     front: bool
     err: CameraErrorKind
     errStr: string
-    stateCb: StateCallback
+    stateCb: StateCallbackBox
 
   CameraSession* = ref CameraSessionObj
 
 proc notify(s: ptr CameraSessionObj) =
-  if s.stateCb != nil:
-    s.stateCb()
+  let box = s.stateCb
+  if box != nil:
+    # Keep the callback (and what it captured) alive for the call: it may
+    # replace or clear itself, or close the session, while running.
+    GC_ref(box)
+    box.cb()
+    GC_unref(box)
 
 proc onStateChanged*(s: CameraSession, cb: StateCallback) =
   ## Called after active/error/device/output changes, on the GUI thread.
-  s.stateCb = cb
+  s.stateCb = if cb == nil: nil else: StateCallbackBox(cb: cb)
 
 proc newCameraSession*(): CameraSession =
   let s = CameraSession(

@@ -37,3 +37,12 @@ template local*(body: untyped) =
   ## Runs `body` inside a proc so its variables are locals, which gcsafe
   ## callbacks may capture (unittest's test bodies are module-level).
   (proc() = body)()
+
+import seaqt/qvideosink
+
+proc pushNv12*(sink: pointer, w, h: int, y: byte) =
+  ## Sets a synthetic NV12 frame (Y plane = `y`) on a QVideoSink*.
+  let f = makeFrame(w, h, 18, proc(plane: int, p: ptr UncheckedArray[byte], bpl, rows: int) =
+    for i in 0 ..< bpl * rows:
+      p[i] = (if plane == 0: y else: 128'u8))
+  QVideoSink(h: sink, owned: false).setVideoFrame(f)

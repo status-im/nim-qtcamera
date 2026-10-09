@@ -1,5 +1,5 @@
-import std/unittest
-import seaqt/[qvideosink, qvideoframe]
+import std/[unittest, os]
+import seaqt/[qvideosink, qvideoframe, qmediadevices]
 import ../qtcamera/[types, luma, frametap]
 import ./testutils
 
@@ -8,6 +8,35 @@ ensureApp()
 const
   NV12 = 18
   JPEG = 29
+
+type Probe = object
+  v: int
+
+var
+  probeDestroyed: bool
+  freedDuringCallback: bool
+  selfDroppingTap: FrameTap
+
+proc `=destroy`(p: var Probe) =
+  if p.v != 0:
+    probeDestroyed = true
+
+proc makeSelfDroppingTap() =
+  ## After this returns, only the tap's closure holds `probe`.
+  var probe = Probe(v: 1)
+  selfDroppingTap = newFrameTap(proc(f: sink GrayFrame) =
+    {.cast(gcsafe).}:
+      selfDroppingTap.detach()
+      selfDroppingTap = nil
+      freedDuringCallback = probeDestroyed
+      doAssert probe.v == 1)
+
+proc pushFromThread(sink: pointer) {.thread.} =
+  {.cast(gcsafe).}:
+    let f = makeFrame(16, 8, 18, proc(plane: int, p: ptr UncheckedArray[byte], bpl, rows: int) =
+      for i in 0 ..< bpl * rows:
+        p[i] = 50)
+    QVideoSink(h: sink, owned: false).setVideoFrame(f)
 
 proc nv12(w, h: int, y = 200'u8): QVideoFrame =
   makeFrame(w, h, NV12, proc(plane: int, p: ptr UncheckedArray[byte], bpl, rows: int) =
@@ -112,3 +141,98 @@ suite "FrameTap":
       processEvents()
       check got == 1
       tap.detach()
+
+  test "minInterval skips armed frames until the interval elapses":
+    local:
+      var got = 0
+      let vs = QVideoSink.create()
+      let tap = newFrameTap(proc(f: sink GrayFrame) = inc got)
+      tap.minIntervalMs = 200
+      tap.attach(vs)
+      tap.arm()
+      vs.setVideoFrame(nv12(16, 8, 1))
+      processEvents()
+      check got == 1 # first pull is never throttled
+      tap.arm()
+      vs.setVideoFrame(nv12(16, 8, 2))
+      processEvents()
+      check got == 1 # too soon: not mapped, still armed
+      check tap.isArmed
+      check tap.stats.framesPulled == 1
+      sleep(250)
+      vs.setVideoFrame(nv12(16, 8, 3))
+      processEvents()
+      check got == 2
+      tap.detach()
+
+  test "disarm cancels a pending pull":
+    local:
+      var got = 0
+      let vs = QVideoSink.create()
+      let tap = newFrameTap(proc(f: sink GrayFrame) = inc got)
+      tap.attach(vs)
+      tap.arm()
+      tap.disarm()
+      check not tap.isArmed
+      vs.setVideoFrame(nv12(16, 8))
+      processEvents()
+      check got == 0
+      tap.detach()
+
+  test "attach by raw QVideoSink pointer":
+    local:
+      var got = 0
+      let vs = QVideoSink.create()
+      let tap = newFrameTap(proc(f: sink GrayFrame) = inc got)
+      tap.attachRaw(vs.h)
+      tap.arm()
+      vs.setVideoFrame(nv12(16, 8))
+      processEvents()
+      check got == 1
+      tap.detach()
+
+  test "queued frame posted before detach is not delivered": # review C1
+    local:
+      var got = 0
+      let vs = QVideoSink.create()
+      let tap = newFrameTap(proc(f: sink GrayFrame) = inc got)
+      tap.attach(vs)
+      tap.arm()
+      var th: Thread[pointer]
+      createThread(th, pushFromThread, vs.h) # emitted off-thread -> queued
+      joinThread(th)
+      tap.detach()                            # before the queued event runs
+      processEvents()
+      check got == 0
+      check tap.stats.framesSeen == 0
+
+  test "callback may detach and drop the last reference to its tap": # review I1
+    let vs = QVideoSink.create()
+    makeSelfDroppingTap()
+    selfDroppingTap.attach(vs)
+    selfDroppingTap.arm()
+    vs.setVideoFrame(nv12(16, 8))
+    processEvents()
+    check selfDroppingTap == nil
+    check not freedDuringCallback
+    check probeDestroyed
+
+  test "attaching to a QObject that is not a QVideoSink is refused": # review I2
+    let other = QMediaDevices.create()
+    let tap = newFrameTap(proc(f: sink GrayFrame) = discard)
+    tap.attachRaw(other.h)
+    check not tap.isAttached
+    tap.detach()
+
+  test "attaching to a null sink is refused": # review M5
+    let tap = newFrameTap(proc(f: sink GrayFrame) = discard)
+    tap.attachRaw(nil)
+    check not tap.isAttached
+
+  test "fps to interval conversion never overflows": # review M2
+    check fpsToIntervalMs(0) == 0
+    check fpsToIntervalMs(-5) == 0
+    check fpsToIntervalMs(10) == 100
+    check fpsToIntervalMs(1e-20) == maxIntervalMs
+    check fpsToIntervalMs(Inf) == 0
+    check fpsToIntervalMs(NaN) == 0

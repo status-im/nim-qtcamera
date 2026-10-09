@@ -10,8 +10,9 @@ typedef void (*qtcamera_frame_cb)(void* ctx, const void* qvideoframe);
 typedef void (*qtcamera_permission_cb)(void* ctx, int status);
 
 // Connects QVideoSink::videoFrameChanged. The callback runs on the sink's
-// thread. Returns a heap QMetaObject::Connection; release it with
-// qtcamera_disconnect (safe after the sink is gone).
+// thread and never after qtcamera_disconnect (even for already-queued frames).
+// Returns nullptr when `qvideosink` is not a QVideoSink. Release the handle
+// with qtcamera_disconnect (safe after the sink is gone).
 void* qtcamera_connect_frames(void* qvideosink, void* ctx, qtcamera_frame_cb cb);
 void qtcamera_disconnect(void* connection);
 

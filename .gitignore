@@ -6,3 +6,6 @@ tests/t*
 !tests/testutils.nim
 examples/**/main
 .superpowers/
+tests/manual/*
+!tests/manual/*.nim
+examples/*/main

@@ -5,6 +5,27 @@ import ./testutils
 
 ensureApp()
 
+type Probe = object
+  marker: int
+
+var
+  probeDestroyed: bool
+  freedDuringCallback: bool
+  selfRemovingSession: CameraSession
+
+proc `=destroy`(p: var Probe) =
+  if p.marker != 0:
+    probeDestroyed = true
+
+proc installSelfRemovingCallback() =
+  ## After this returns, only the callback closure holds `probe`.
+  var probe = Probe(marker: 456)
+  selfRemovingSession.onStateChanged(proc() =
+    {.cast(gcsafe).}:
+      selfRemovingSession.onStateChanged(nil)
+      freedDuringCallback = probeDestroyed
+      doAssert probe.marker == 456)
+
 suite "CameraSession (no activation)":
   test "fresh session is inactive with a headless sink":
     let s = newCameraSession()
@@ -51,6 +72,14 @@ suite "CameraSession (no activation)":
     check not s.isActive
     check s.errorKind == ceNone
     s.close()
+
+  test "a state callback may remove itself while running": # review 1
+    selfRemovingSession = newCameraSession()
+    installSelfRemovingCallback()
+    discard selfRemovingSession.selectDevice("definitely-not-a-camera-id")
+    check not freedDuringCallback
+    check probeDestroyed
+    selfRemovingSession.close()
 
 if getEnv("QTCAMERA_TEST_WITH_CAMERA") == "1":
   suite "CameraSession (real camera)":

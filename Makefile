@@ -11,7 +11,9 @@ PRLTOPC_REV := 03a8a91707db7d9257d8617453fefb58fe848904
 DEPS  := .deps
 NIM   ?= nim
 QMAKE ?= qmake
-NIMFLAGS ?= --hints:off
+# Nim does not recompile {.compile.}'d C++ (qtcamera/private/shim.cpp) when it
+# changes: after editing it run `make test EXTRA_NIMFLAGS=-f`.
+NIMFLAGS ?= --hints:off $(EXTRA_NIMFLAGS)
 
 define clone_pinned
 	@test -d $(DEPS)/$(1) || git clone --quiet $(2) $(DEPS)/$(1)
