@@ -39,7 +39,7 @@ ifeq ($(shell uname -s),Darwin)
  NIMFLAGS += --passL:"-Wl,-sectcreate,__TEXT,__info_plist,$(CURDIR)/resources/Info.plist"
 endif
 
-TESTS := $(sort $(wildcard tests/t*.nim))
+TESTS := $(sort $(filter-out tests/testutils.nim,$(wildcard tests/t*.nim)))
 
 test: | qt-pkgconfig
 	@for t in $(TESTS); do echo "== $$t"; $(NIM) c -r $(NIMFLAGS) $$t || exit 1; done
