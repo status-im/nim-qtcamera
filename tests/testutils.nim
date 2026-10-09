@@ -32,3 +32,8 @@ proc makeFrame*(w, h, pixelFormat: int, fill: PlaneFiller): QVideoFrame =
 
 func gradientY*(x, y: int): byte =
   byte((x + 3 * y) and 0xFF)
+
+template local*(body: untyped) =
+  ## Runs `body` inside a proc so its variables are locals, which gcsafe
+  ## callbacks may capture (unittest's test bodies are module-level).
+  (proc() = body)()

@@ -2,12 +2,10 @@
 
 {.push raises: [], gcsafe.}
 
-import std/os
 import seaqt/QtCore/qtcore_pkg
 import seaqt/QtMultimedia/qtmultimedia_pkg
 import ./darwin_permission_plugin
 
-const shimHeader = currentSourcePath().parentDir() / "shim.h"
 
 {.compile("shim.cpp", "-std=c++17 " & QtCoreCFlags & " " & QtMultimediaCFlags).}
 {.passl: QtCoreLibs.}
@@ -17,12 +15,12 @@ type
   PermissionCb* = proc(ctx: pointer, status: cint) {.cdecl, gcsafe, raises: [].}
 
 proc shimConnectFrames*(sink, ctx: pointer, cb: FrameCb): pointer {.
-  importc: "qtcamera_connect_frames", header: shimHeader.}
+  importc: "qtcamera_connect_frames".}
 proc shimDisconnect*(conn: pointer) {.
-  importc: "qtcamera_disconnect", header: shimHeader.}
+  importc: "qtcamera_disconnect".}
 proc shimCameraPermissionStatus*(): cint {.
-  importc: "qtcamera_camera_permission_status", header: shimHeader.}
+  importc: "qtcamera_camera_permission_status".}
 proc shimRequestCameraPermission*(ctx: pointer, cb: PermissionCb) {.
-  importc: "qtcamera_request_camera_permission", header: shimHeader.}
+  importc: "qtcamera_request_camera_permission".}
 proc shimQObjectFromVariant*(v: pointer): pointer {.
-  importc: "qtcamera_qobject_from_variant", header: shimHeader.}
+  importc: "qtcamera_qobject_from_variant".}
