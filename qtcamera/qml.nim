@@ -138,6 +138,10 @@ QtObject:
     o.roi = Opt.none(NormRect)
     e.core.options = o
 
+  proc tapCount*(self: QtCameraBackend): int {.slot.} =
+    ## Number of live taps (diagnostics and leak tests).
+    self.taps.len
+
   proc tapFramesSeen(self: QtCameraBackend, handle: int): int {.slot.} =
     let e = self.entry(handle)
     if e == nil: 0 else: e.core.stats.framesSeen

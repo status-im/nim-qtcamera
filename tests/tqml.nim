@@ -222,9 +222,13 @@ Item {
       echo r2.failures
 
   test "install twice on two engines": # Phase 2 Review Focus 1
+    let before = qtCameraBackend().tapCount()
     let a = newEngineWithInstall()
     let b = newEngineWithInstall()
-    check qtCameraBackend() != nil
+    let backend = qtCameraBackend()
+    check backend != nil
+    check qtCameraBackend() == backend # one shared backend
+    check backend.tapCount() == before # installing creates no taps
     a.delete()
     b.delete()
 
@@ -246,5 +250,6 @@ Item { FrameTap { id: t } Component.onCompleted: reporter.ready(t.handle, null) 
     for i in 0 ..< 10:
       processEvents()
     check findTap(handle).isNone # destroyed with its component
+    check qtCameraBackend().tapCount() == 1 # only the long-lived test tap
     let e4 = newEngineWithInstall() # still usable afterwards
     e4.delete()
