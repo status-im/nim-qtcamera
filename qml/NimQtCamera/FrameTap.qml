@@ -7,8 +7,8 @@ QtObject {
 
     property var videoSink: null
     property bool enabled: true
-    // 0 = every frame; otherwise pulls are capped at this rate.
-    property real maxFps: 0
+    // Pull cap. 0 = every frame (costly: one luma copy per frame).
+    property real maxFps: 5
     // 0 = full resolution; otherwise the largest side is <= maxDim.
     property int maxDim: 0
 
@@ -48,7 +48,15 @@ QtObject {
     readonly property QtObject _d: QtObject {
         id: d
 
-        readonly property int handle: nimQtCameraBackend.createTap()
+        // Created on first read and cached: re-evaluating this binding (e.g. if
+        // the context property is set again) must not create another tap.
+        // `cache` is a plain JS object so writing to it notifies nothing.
+        readonly property var cache: ({ handle: 0 })
+        readonly property int handle: {
+            if (cache.handle === 0)
+                cache.handle = nimQtCameraBackend.createTap()
+            return cache.handle
+        }
         property int framesSeen: 0
         property int framesPulled: 0
         property int pixelFormat: 0

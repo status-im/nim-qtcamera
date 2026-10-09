@@ -35,6 +35,8 @@ deps:
 
 ifeq ($(shell uname -s),Darwin)
  QT_LIBDIR := $(shell $(QMAKE) -query QT_INSTALL_LIBS 2>/dev/null)
+ # Link the permission plugin of the same Qt the build uses (not PATH's qmake).
+ NIMFLAGS += -d:qtPluginsDir=$(shell $(QMAKE) -query QT_INSTALL_PLUGINS 2>/dev/null)
  NIMFLAGS += --passL:"-F$(QT_LIBDIR)" --passL:"-Wl,-rpath,$(QT_LIBDIR)"
  # Unbundled macOS binaries need an embedded Info.plist with
  # NSCameraUsageDescription, otherwise Qt refuses camera access.

@@ -48,6 +48,10 @@ let engine = newQQmlApplicationEngine()
 install(engine)  # import path + `nimQtCameraBackend` context property
 ```
 
+C++ hosts linking a Nim static library call `installOnEngine(qqmlEnginePtr)`
+(`raises: []`) from an exported C function, once per engine. Every engine
+shares the GUI thread's backend.
+
 ```qml
 import QtMultimedia
 import NimQtCamera 1.0
@@ -56,6 +60,9 @@ CaptureSession { camera: Camera { id: camera; active: true }; videoOutput: previ
 VideoOutput { id: preview }
 FrameTap { videoSink: preview.videoSink; enabled: camera.active; maxFps: 10; maxDim: 640 }
 ```
+
+`maxFps` defaults to 5. `0` pulls every frame, which costs one luma copy per
+frame on the GUI thread.
 
 A Nim library can consume a QML tap's frames through its `handle`:
 
@@ -94,7 +101,9 @@ Why a backend object and not registered QML types: nimqml-seaqt's
   (`qtcamera/private/darwin_permission_plugin.nim`). Hosts that already import
   `Qt6::QDarwinCameraPermissionPlugin` (for example via CMake
   `qt_import_plugins`) must compile with `-d:qtcameraNoPermissionPlugin`.
-  `-d:qtPluginsDir=<dir>` overrides the `qmake -query QT_INSTALL_PLUGINS` lookup.
+  `-d:qtPluginsDir=<dir>` overrides the `qmake -query QT_INSTALL_PLUGINS` lookup
+  (the Makefile passes it from `$(QMAKE)`). The build fails with a clear error
+  if the plugin can't be found.
 - Request camera permission before activating a camera; Qt does not do it.
 
 ## Development

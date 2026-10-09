@@ -15,9 +15,14 @@ when (defined(macosx) or defined(ios)) and not defined(qtcameraNoPermissionPlugi
   const
     qtPluginsDir {.strdefine.} = staticExec("qmake -query QT_INSTALL_PLUGINS").strip()
     permDir = qtPluginsDir & "/permissions"
-    initObj = permDir &
-      "/objects-RelWithDebInfo/QDarwinCameraPermissionPlugin_init/" &
-      "QDarwinCameraPermissionPlugin_init.cpp.o"
+    # The init object's directory is named after the Qt build config
+    # (objects-RelWithDebInfo in the Qt installer, objects-Release elsewhere).
+    initObj = staticExec("ls -d \"" & permDir &
+      "\"/objects-*/QDarwinCameraPermissionPlugin_init/*.o 2>/dev/null | head -n 1").strip()
+
+  when initObj.len == 0:
+    {.error: "Qt camera permission plugin not found under " & permDir &
+      " (pass -d:qtPluginsDir=<dir> or -d:qtcameraNoPermissionPlugin)".}
 
   {.passL: "\"" & initObj & "\"".}
   {.passL: "\"" & permDir & "/libqdarwincamerapermission.a\"".}

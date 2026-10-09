@@ -19,7 +19,7 @@ import std/[os, tables]
 import results
 import nimqml
 import ./[types, luma, frametap]
-import ./private/shim
+import ./private/[shim, qml_shim]
 
 export results
 
@@ -166,10 +166,20 @@ proc qtCameraBackend*(): QtCameraBackend =
     backend = newQtCameraBackend()
   backend
 
+proc installOnEngine*(engine: pointer) {.raises: [].} =
+  ## For C++ hosts: `engine` is a QQmlEngine*. Adds the NimQtCamera import path
+  ## and the `nimQtCameraBackend` context property. Call once per engine; all
+  ## engines share the GUI thread's backend.
+  # qtCameraBackend() can only raise if nimqml fails to set up its QObject,
+  # which is unrecoverable at a C boundary anyway.
+  {.cast(raises: []).}:
+    let b = qtCameraBackend()
+    shimQmlInstall(engine, qmlImportDir.cstring, backendContextName.cstring,
+                   cast[pointer](b.vptr))
+
 proc install*(engine: QQmlApplicationEngine) =
-  ## Adds the NimQtCamera import path and the backend context property.
-  engine.addImportPath(qmlImportDir)
-  engine.setRootContextProperty(backendContextName, newQVariant(qtCameraBackend()))
+  ## For Nim (nimqml) hosts.
+  installOnEngine(cast[pointer](engine.vptr))
 
 proc existingEntry(handle: int): TapEntry {.gcsafe, raises: [].} =
   ## Never creates the backend, so handle operations stay effect-free and can be

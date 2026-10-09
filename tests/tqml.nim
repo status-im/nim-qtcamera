@@ -89,6 +89,7 @@ Item {
     id: tap
     videoSink: vo.videoSink
     enabled: true
+    maxFps: 0 // these tests push frames back-to-back
     maxDim: 8
     onFramePulled: reporter.pulled(tap.framesPulled)
   }
@@ -191,3 +192,59 @@ suite "qml FrameTap":
     pushNv12(reporter.sink, 32, 16, 7)
     check not freedDuringConsumer
     check probeDestroyed
+
+proc newEngineWithInstall(): QQmlApplicationEngine =
+  result = newQQmlApplicationEngine()
+  installOnEngine(cast[pointer](result.vptr))
+
+suite "installOnEngine":
+  test "raw-engine install exposes NimQtCamera and the backend":
+    let e2 = newEngineWithInstall()
+    let r2 = newReporter()
+    e2.setRootContextProperty("reporter", newQVariant(r2))
+    e2.loadData("""
+import QtQuick
+import NimQtCamera 1.0
+Item {
+  FrameTap { id: t }
+  Component.onCompleted: {
+    if (t.handle <= 0) reporter.fail("handle")
+    if (t.maxFps !== 5) reporter.fail("default maxFps " + t.maxFps)
+    reporter.ready(t.handle, null)
+  }
+}
+""")
+    for i in 0 ..< 10:
+      processEvents()
+    check r2.completed
+    check r2.failures.len == 0
+    if r2.failures.len > 0:
+      echo r2.failures
+
+  test "install twice on two engines": # Phase 2 Review Focus 1
+    let a = newEngineWithInstall()
+    let b = newEngineWithInstall()
+    check qtCameraBackend() != nil
+    a.delete()
+    b.delete()
+
+  test "backend survives engine teardown": # Phase 2 Review Focus 2
+    let e3 = newEngineWithInstall()
+    let r3 = newReporter()
+    e3.setRootContextProperty("reporter", newQVariant(r3))
+    e3.loadData("""
+import QtQuick
+import NimQtCamera 1.0
+Item { FrameTap { id: t } Component.onCompleted: reporter.ready(t.handle, null) }
+""")
+    for i in 0 ..< 10:
+      processEvents()
+    let handle = r3.handle
+    check handle > 0
+    check findTap(handle).isSome
+    e3.delete()
+    for i in 0 ..< 10:
+      processEvents()
+    check findTap(handle).isNone # destroyed with its component
+    let e4 = newEngineWithInstall() # still usable afterwards
+    e4.delete()
