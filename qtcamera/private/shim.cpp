@@ -66,9 +66,13 @@ extern "C" void qtcamera_disconnect(void* handle)
 extern "C" int qtcamera_camera_permission_status(void)
 {
 #if QT_CONFIG(permissions)
-    if (!qApp) // before the application object exists: nothing to ask yet
+    // QCoreApplication::instance(), not qApp: with <QGuiApplication> included,
+    // qApp downcasts to QGuiApplication*, which is undefined behaviour for
+    // headless hosts that only create a QCoreApplication.
+    auto* app = QCoreApplication::instance();
+    if (!app) // before the application object exists: nothing to ask yet
         return static_cast<int>(Qt::PermissionStatus::Undetermined);
-    return static_cast<int>(qApp->checkPermission(QCameraPermission{}));
+    return static_cast<int>(app->checkPermission(QCameraPermission{}));
 #else
     return static_cast<int>(Qt::PermissionStatus::Granted);
 #endif
@@ -77,12 +81,13 @@ extern "C" int qtcamera_camera_permission_status(void)
 extern "C" void qtcamera_request_camera_permission(void* ctx, qtcamera_permission_cb cb)
 {
 #if QT_CONFIG(permissions)
-    if (!qApp) {
+    auto* app = QCoreApplication::instance(); // not qApp: see above
+    if (!app) {
         cb(ctx, static_cast<int>(Qt::PermissionStatus::Undetermined));
         return;
     }
-    qApp->requestPermission(QCameraPermission{}, qApp,
-                            [ctx, cb](const QPermission& p) { cb(ctx, static_cast<int>(p.status())); });
+    app->requestPermission(QCameraPermission{}, app,
+                           [ctx, cb](const QPermission& p) { cb(ctx, static_cast<int>(p.status())); });
 #else
     cb(ctx, static_cast<int>(Qt::PermissionStatus::Granted));
 #endif
@@ -127,6 +132,10 @@ extern "C" int qtcamera_open_camera_settings(void)
 {
     auto* app = QCoreApplication::instance();
     if (!app || QThread::currentThread() != app->thread())
+        return 0;
+    // Opening an OS page (QDesktopServices / the Android activity) needs a GUI
+    // application; headless hosts with a plain QCoreApplication get false.
+    if (!qobject_cast<QGuiApplication*>(app))
         return 0;
 #if defined(Q_OS_ANDROID)
     // Self-contained (no app-specific Activity): open this app's details page,
