@@ -44,3 +44,23 @@ NV12 is the main path on macOS; no GPU readback needed.
 Linux, Windows, Android, iOS — when Phase 5 build wiring starts. Android/iOS
 texture-backed frames are the main open risk (`toImage()` fallback in
 `qtcamera/luma.nim`).
+
+## Camera-settings shim cross-compile (2026-10-13)
+
+`qtcamera/private/shim.cpp` (with `qtcamera_open_camera_settings`) compiles for:
+
+```sh
+# QT: directory holding the Qt 6.11 kits (macos/, ios/, android_arm64_v8a/ ...)
+QT=$(dirname "$(qmake -query QT_INSTALL_PREFIX)")
+# iOS simulator arm64 → Mach-O arm64 object (QDesktopServices path)
+xcrun --sdk iphonesimulator clang++ -std=c++17 -c qtcamera/private/shim.cpp -o shim-ios.o \
+  -target arm64-apple-ios17.0-simulator -F$QT/ios/lib -I$QT/ios/include -I$QT/ios/mkspecs/macx-ios-clang
+# Android arm64-v8a → ELF aarch64 object (JNI path: QJniObject/QJniEnvironment)
+# NDK: ANDROID_NDK_ROOT; host tag darwin-x86_64 (macOS) or linux-x86_64 (Linux)
+NDK=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/darwin-x86_64/bin
+A=$QT/android_arm64_v8a
+$NDK/aarch64-linux-android28-clang++ -std=c++17 -fPIC -c qtcamera/private/shim.cpp -o shim-android.o \
+  -I$A/include -I$A/include/QtCore -I$A/include/QtGui -I$A/include/QtMultimedia -I$A/mkspecs/android-clang
+```
+
+Compile-only: opening the settings page on a device is verified in Phase 4/5.

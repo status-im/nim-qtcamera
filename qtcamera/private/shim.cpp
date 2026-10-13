@@ -2,9 +2,17 @@
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QPermissions>
+#include <QtCore/QThread>
+#include <QtCore/QUrl>
 #include <QtCore/QVariant>
+#include <QtGui/QDesktopServices>
 #include <QtMultimedia/QVideoFrame>
 #include <QtMultimedia/QVideoSink>
+
+#if defined(Q_OS_ANDROID)
+#include <QtCore/QJniEnvironment>
+#include <QtCore/QJniObject>
+#endif
 
 #include <atomic>
 #include <memory>
@@ -82,4 +90,69 @@ extern "C" void* qtcamera_qobject_from_variant(const void* v)
     while (var.metaType() == QMetaType::fromType<QVariant>())
         var = var.value<QVariant>();
     return var.value<QObject*>();
+}
+
+namespace {
+const char* cameraSettingsUrl()
+{
+#if defined(Q_OS_MACOS)
+    return "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera";
+#elif defined(Q_OS_WIN)
+    return "ms-settings:privacy-webcam";
+#elif defined(Q_OS_IOS)
+    return "app-settings:";
+#else
+    return nullptr;
+#endif
+}
+} // namespace
+
+extern "C" int qtcamera_can_open_camera_settings(void)
+{
+#if defined(Q_OS_ANDROID)
+    return 1;
+#else
+    return cameraSettingsUrl() ? 1 : 0;
+#endif
+}
+
+extern "C" int qtcamera_open_camera_settings(void)
+{
+    auto* app = QCoreApplication::instance();
+    if (!app || QThread::currentThread() != app->thread())
+        return 0;
+#if defined(Q_OS_ANDROID)
+    // Self-contained (no app-specific Activity): open this app's details page,
+    // where Android lists its permissions.
+    QJniObject ctx(QNativeInterface::QAndroidApplication::context().object());
+    if (!ctx.isValid())
+        return 0;
+    QJniEnvironment env;
+    QJniObject pkg = ctx.callObjectMethod("getPackageName", "()Ljava/lang/String;");
+    QJniObject uri = QJniObject::callStaticObjectMethod(
+        "android/net/Uri", "fromParts",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/net/Uri;",
+        QJniObject::fromString(QStringLiteral("package")).object<jstring>(),
+        pkg.object<jstring>(), static_cast<jstring>(nullptr));
+    QJniObject intent("android/content/Intent", "(Ljava/lang/String;Landroid/net/Uri;)V",
+        QJniObject::fromString(QStringLiteral("android.settings.APPLICATION_DETAILS_SETTINGS"))
+            .object<jstring>(),
+        uri.object());
+    intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", jint(0x10000000));
+    ctx.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object());
+    if (env.checkAndClearExceptions()) {
+        qWarning("qtcamera: could not open the app settings");
+        return 0;
+    }
+    return 1;
+#else
+    const char* url = cameraSettingsUrl();
+    if (!url)
+        return 0;
+    if (!QDesktopServices::openUrl(QUrl(QString::fromLatin1(url)))) {
+        qWarning("qtcamera: could not open %s", url);
+        return 0;
+    }
+    return 1;
+#endif
 }

@@ -22,6 +22,12 @@ void qtcamera_request_camera_permission(void* ctx, qtcamera_permission_cb cb);
 
 void* qtcamera_qobject_from_variant(const void* qvariant);
 
+// 1 when this platform can open the OS page where camera access is granted
+// (macOS, Windows, iOS, Android); 0 otherwise (Linux).
+int qtcamera_can_open_camera_settings(void);
+// Opens that page. GUI thread only; returns 1 if the OS accepted the request.
+int qtcamera_open_camera_settings(void);
+
 #ifdef __cplusplus
 }
 #endif

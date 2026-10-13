@@ -3,12 +3,15 @@
 {.push raises: [], gcsafe.}
 
 import seaqt/QtCore/qtcore_pkg
+import seaqt/QtGui/qtgui_pkg
 import seaqt/QtMultimedia/qtmultimedia_pkg
 import ./darwin_permission_plugin
 
 
-{.compile("shim.cpp", "-std=c++17 " & QtCoreCFlags & " " & QtMultimediaCFlags).}
+{.compile("shim.cpp", "-std=c++17 " & QtCoreCFlags & " " & QtGuiCFlags & " " &
+  QtMultimediaCFlags).}
 {.passl: QtCoreLibs.}
+{.passl: QtGuiLibs.}
 
 type
   FrameCb* = proc(ctx: pointer, frame: pointer) {.cdecl, gcsafe, raises: [].}
@@ -24,3 +27,7 @@ proc shimRequestCameraPermission*(ctx: pointer, cb: PermissionCb) {.
   importc: "qtcamera_request_camera_permission".}
 proc shimQObjectFromVariant*(v: pointer): pointer {.
   importc: "qtcamera_qobject_from_variant".}
+proc shimCanOpenCameraSettings*(): cint {.
+  importc: "qtcamera_can_open_camera_settings".}
+proc shimOpenCameraSettings*(): cint {.
+  importc: "qtcamera_open_camera_settings".}
