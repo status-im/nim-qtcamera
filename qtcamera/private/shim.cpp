@@ -66,6 +66,8 @@ extern "C" void qtcamera_disconnect(void* handle)
 extern "C" int qtcamera_camera_permission_status(void)
 {
 #if QT_CONFIG(permissions)
+    if (!qApp) // before the application object exists: nothing to ask yet
+        return static_cast<int>(Qt::PermissionStatus::Undetermined);
     return static_cast<int>(qApp->checkPermission(QCameraPermission{}));
 #else
     return static_cast<int>(Qt::PermissionStatus::Granted);
@@ -75,6 +77,10 @@ extern "C" int qtcamera_camera_permission_status(void)
 extern "C" void qtcamera_request_camera_permission(void* ctx, qtcamera_permission_cb cb)
 {
 #if QT_CONFIG(permissions)
+    if (!qApp) {
+        cb(ctx, static_cast<int>(Qt::PermissionStatus::Undetermined));
+        return;
+    }
     qApp->requestPermission(QCameraPermission{}, qApp,
                             [ctx, cb](const QPermission& p) { cb(ctx, static_cast<int>(p.status())); });
 #else
@@ -139,8 +145,22 @@ extern "C" int qtcamera_open_camera_settings(void)
         QJniObject::fromString(QStringLiteral("android.settings.APPLICATION_DETAILS_SETTINGS"))
             .object<jstring>(),
         uri.object());
+    if (!pkg.isValid() || !uri.isValid() || !intent.isValid()) {
+        qWarning("qtcamera: could not build the app-settings intent");
+        return 0;
+    }
     intent.callObjectMethod("addFlags", "(I)Landroid/content/Intent;", jint(0x10000000));
-    ctx.callMethod<void>("startActivity", "(Landroid/content/Intent;)V", intent.object());
+    // QJniObject::callMethod clears Java exceptions itself, which would hide an
+    // ActivityNotFoundException/SecurityException; call startActivity through
+    // raw JNI so the exception is still pending when we check it.
+    jmethodID startActivity =
+        env.findMethod(ctx.objectClass(), "startActivity", "(Landroid/content/Intent;)V");
+    if (!startActivity) {
+        env.checkAndClearExceptions();
+        qWarning("qtcamera: startActivity not found");
+        return 0;
+    }
+    env->CallVoidMethod(ctx.object(), startActivity, intent.object());
     if (env.checkAndClearExceptions()) {
         qWarning("qtcamera: could not open the app settings");
         return 0;

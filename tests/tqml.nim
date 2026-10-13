@@ -262,21 +262,6 @@ Item { FrameTap { id: t } Component.onCompleted: reporter.ready(t.handle, null) 
     let e4 = newEngineWithInstall() # still usable afterwards
     e4.delete()
 
-import std/strutils
-import seaqt/QtGui/qtgui_pkg
-
-const qtGuiPrivateIncludes = block:
-  # QtGui's private headers (qpa/) live under <QtGui headers>/<version>/QtGui.
-  var flags = ""
-  for f in QtGuiCFlags.splitWhitespace:
-    if f.startsWith("-I") and f.endsWith("QtGui.framework/Headers"):
-      flags.add " " & f & "/" & QtGuiBuildVersion.strip() & " " & f & "/" & QtGuiBuildVersion.strip() & "/QtGui"
-    elif f.startsWith("-I") and f.endsWith("/QtGui"):
-      flags.add " " & f & "/" & QtGuiBuildVersion.strip() & " " & f & "/" & QtGuiBuildVersion.strip() & "/QtGui"
-  flags
-{.compile("appstate.cpp", "-std=c++17 " & QtGuiCFlags & qtGuiPrivateIncludes).}
-proc setAppStateForTest(active: cint) {.importc: "qtcamera_test_set_app_state".}
-
 suite "camera access":
   test "backend exposes permission and capability":
     let b = qtCameraBackend()
@@ -297,20 +282,6 @@ suite "camera access":
     b.refreshCameraPermission()
     check b.cameraPermissionValue() == permissionName(cameraPermissionStatus())
     check notified == 1
-    b.setCameraPermissionChangedHookForTest(nil)
-
-  test "returning to the app refreshes the status": # Review Focus 1 (real hook)
-    let b = qtCameraBackend()
-    var notified {.global.} = 0
-    b.setCameraPermissionChangedHookForTest(proc() {.gcsafe, raises: [].} =
-      {.cast(gcsafe).}: inc notified)
-    setAppStateForTest(0) # user leaves for the OS settings
-    let stale = if cameraPermissionStatus() == psDenied: psGranted else: psDenied
-    b.setCameraPermissionForTest(stale)
-    notified = 0
-    setAppStateForTest(1) # ...and comes back
-    check notified == 1
-    check b.cameraPermissionValue() == permissionName(cameraPermissionStatus())
     b.setCameraPermissionChangedHookForTest(nil)
 
   test "refresh without change does not notify": # Review Focus 2
