@@ -1,4 +1,3 @@
-import QtCore
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -13,15 +12,15 @@ ApplicationWindow {
 
     MediaDevices { id: mediaDevices }
 
-    CameraPermission {
-        id: permission
-        Component.onCompleted: if (status === Qt.PermissionStatus.Undetermined) request()
+    CameraAccess {
+        id: access
+        Component.onCompleted: if (status === "undetermined") request()
     }
 
     CaptureSession {
         camera: Camera {
             id: camera
-            active: permission.status === Qt.PermissionStatus.Granted
+            active: access.granted
                     && activeSwitch.checked
                     && Qt.application.state === Qt.ApplicationActive
             focusMode: Camera.FocusModeAutoNear
@@ -53,9 +52,15 @@ ApplicationWindow {
             Slider { id: fpsSlider; from: 0; to: 30; stepSize: 1; value: 10 }
             Label { text: fpsSlider.value === 0 ? "all" : fpsSlider.value }
             Label {
-                visible: permission.status !== Qt.PermissionStatus.Granted
-                text: "Camera permission not granted"
+                visible: access.status === "denied"
+                text: access.canOpenSettings ? "Camera access is off"
+                                             : "Enable camera access in your system settings"
                 color: "red"
+            }
+            Button {
+                visible: access.status === "denied" && access.canOpenSettings
+                text: "Open settings"
+                onClicked: access.openSettings()
             }
         }
 

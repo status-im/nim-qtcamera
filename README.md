@@ -81,11 +81,53 @@ enabled, resumes pulling.
 Why a backend object and not registered QML types: nimqml-seaqt's
 `qmlRegisterType` is currently a stub, so Nim cannot register QML types.
 
+## Camera permission
+
+Nim API (`qtcamera/permission`):
+
+| Proc | Does |
+|---|---|
+| `cameraPermissionStatus()` | `psUndetermined` / `psGranted` / `psDenied`; never prompts |
+| `requestCameraPermission(cb)` | shows the OS prompt (GUI thread) |
+| `canOpenCameraSettings()` | true where the OS has a camera-permission page |
+| `openCameraSettings()` | opens that page; false if unsupported or refused |
+
+QML: `NimQtCamera.CameraAccess`
+
+```qml
+import NimQtCamera 1.0
+
+CameraAccess { id: access; Component.onCompleted: if (status === "undetermined") request() }
+Camera { active: access.granted }
+Button {
+    visible: access.status === "denied" && access.canOpenSettings
+    text: "Open settings"
+    onClicked: access.openSettings()
+}
+```
+
+`status` (`"undetermined" | "granted" | "denied"`) is re-read whenever the
+application becomes active, so coming back from the settings starts the camera
+without restarting anything. The component is named `CameraAccess` so it
+doesn't clash with QtCore's `CameraPermission` when both are imported.
+
+What "open settings" opens:
+
+| Platform | Page |
+|---|---|
+| macOS | System Settings → Privacy & Security → Camera (`x-apple.systempreferences:com.apple.preference.security?Privacy_Camera`) |
+| Windows | Settings → Privacy → Camera (`ms-settings:privacy-webcam`) |
+| iOS | the app's settings (`app-settings:`) |
+| Android | the app's details page (`ACTION_APPLICATION_DETAILS_SETTINGS` intent via JNI; no app-specific Java needed) |
+| Linux | none: `canOpenCameraSettings` is false, show instructions instead |
+
 ## Why there is a small C++ shim
 
 `qtcamera/private/shim.cpp` (≈60 lines) fills gaps in seaqt:
 
-1. `QCameraPermission` / `QCoreApplication::requestPermission` are not bound.
+1. `QCameraPermission` / `QCoreApplication::requestPermission` are not bound
+   (the shim also opens the OS camera settings, via `QDesktopServices` or
+   Android JNI, and reports when the app becomes active).
 2. `onVideoFrameChanged` returns no connection handle, so a tap could never
    detach from a sink it does not own.
 3. Extracting a `QObject*` from a `QVariant` handed in from QML (nimqml wraps
