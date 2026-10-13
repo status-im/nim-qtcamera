@@ -1,6 +1,6 @@
 import std/[unittest, os]
 import nimqml
-import ../qtcamera/[types, frametap, qml]
+import ../qtcamera/[types, frametap, permission, qml]
 import ../qtcamera/private/shim
 import ./testutils
 
@@ -14,6 +14,9 @@ QtObject:
     pulledInQml: int
     pulledSignals: int
     completed: bool
+    accessStatus: string
+    accessCanOpen: bool
+    accessReported: bool
 
   proc setup(self: Reporter)
   proc delete(self: Reporter)
@@ -41,6 +44,11 @@ QtObject:
     inc self.pulledSignals
 
   proc setEnabled*(self: Reporter, enabled: bool) {.signal.}
+
+  proc access(self: Reporter, status: string, canOpen: bool) {.slot.} =
+    self.accessStatus = status
+    self.accessCanOpen = canOpen
+    self.accessReported = true
 
 type Probe = object
   marker: int
@@ -253,3 +261,84 @@ Item { FrameTap { id: t } Component.onCompleted: reporter.ready(t.handle, null) 
     check qtCameraBackend().tapCount() == 1 # only the long-lived test tap
     let e4 = newEngineWithInstall() # still usable afterwards
     e4.delete()
+
+import std/strutils
+import seaqt/QtGui/qtgui_pkg
+
+const qtGuiPrivateIncludes = block:
+  # QtGui's private headers (qpa/) live under <QtGui headers>/<version>/QtGui.
+  var flags = ""
+  for f in QtGuiCFlags.splitWhitespace:
+    if f.startsWith("-I") and f.endsWith("QtGui.framework/Headers"):
+      flags.add " " & f & "/" & QtGuiBuildVersion.strip() & " " & f & "/" & QtGuiBuildVersion.strip() & "/QtGui"
+    elif f.startsWith("-I") and f.endsWith("/QtGui"):
+      flags.add " " & f & "/" & QtGuiBuildVersion.strip() & " " & f & "/" & QtGuiBuildVersion.strip() & "/QtGui"
+  flags
+{.compile("appstate.cpp", "-std=c++17 " & QtGuiCFlags & qtGuiPrivateIncludes).}
+proc setAppStateForTest(active: cint) {.importc: "qtcamera_test_set_app_state".}
+
+suite "camera access":
+  test "backend exposes permission and capability":
+    let b = qtCameraBackend()
+    check b.cameraPermissionValue() in ["undetermined", "granted", "denied"]
+    check b.cameraPermissionValue() == permissionName(cameraPermissionStatus())
+    check b.canOpenCameraSettingsValue() == canOpenCameraSettings()
+
+  test "refresh updates status and notifies": # Review Focus 1
+    let b = qtCameraBackend()
+    var notified {.global.} = 0
+    b.setCameraPermissionChangedHookForTest(proc() {.gcsafe, raises: [].} =
+      {.cast(gcsafe).}: inc notified)
+    # Pretend the user had denied access (or the OS hadn't answered) before
+    # going to Settings; refreshing must re-read the real OS status.
+    let stale = if cameraPermissionStatus() == psDenied: psGranted else: psDenied
+    b.setCameraPermissionForTest(stale)
+    notified = 0
+    b.refreshCameraPermission()
+    check b.cameraPermissionValue() == permissionName(cameraPermissionStatus())
+    check notified == 1
+    b.setCameraPermissionChangedHookForTest(nil)
+
+  test "returning to the app refreshes the status": # Review Focus 1 (real hook)
+    let b = qtCameraBackend()
+    var notified {.global.} = 0
+    b.setCameraPermissionChangedHookForTest(proc() {.gcsafe, raises: [].} =
+      {.cast(gcsafe).}: inc notified)
+    setAppStateForTest(0) # user leaves for the OS settings
+    let stale = if cameraPermissionStatus() == psDenied: psGranted else: psDenied
+    b.setCameraPermissionForTest(stale)
+    notified = 0
+    setAppStateForTest(1) # ...and comes back
+    check notified == 1
+    check b.cameraPermissionValue() == permissionName(cameraPermissionStatus())
+    b.setCameraPermissionChangedHookForTest(nil)
+
+  test "refresh without change does not notify": # Review Focus 2
+    let b = qtCameraBackend()
+    b.refreshCameraPermission()
+    var notified {.global.} = 0
+    b.setCameraPermissionChangedHookForTest(proc() {.gcsafe, raises: [].} =
+      {.cast(gcsafe).}: inc notified)
+    notified = 0
+    b.refreshCameraPermission()
+    check notified == 0
+    b.setCameraPermissionChangedHookForTest(nil)
+
+  test "CameraAccess component mirrors the backend":
+    let e = newEngineWithInstall()
+    let r = newReporter()
+    e.setRootContextProperty("reporter", newQVariant(r))
+    e.loadData("""
+import QtQuick
+import NimQtCamera 1.0
+Item {
+  CameraAccess { id: access }
+  Component.onCompleted: reporter.access(access.status, access.canOpenSettings)
+}
+""")
+    for i in 0 ..< 10:
+      processEvents()
+    check r.accessReported
+    check r.accessStatus == qtCameraBackend().cameraPermissionValue()
+    check r.accessCanOpen == canOpenCameraSettings()
+    e.delete()

@@ -14,11 +14,15 @@
 ##
 ## Other Nim libraries reach a QML FrameTap through its `handle`
 ## (`findTap`, `armTap`, `setTapConsumer`).
+##
+## Camera permission for QML is `NimQtCamera.CameraAccess` (status, request,
+## open the OS settings page); its status refreshes whenever the application
+## becomes active, e.g. when the user returns from the settings.
 
 import std/[os, tables]
 import results
 import nimqml
-import ./[types, luma, frametap]
+import ./[types, luma, frametap, permission]
 import ./private/[shim, qml_shim]
 
 export results
@@ -27,6 +31,15 @@ const qmlImportDir* = currentSourcePath().parentDir().parentDir() / "qml"
   ## Directory to add to the QML import path; contains `NimQtCamera/`.
 
 const backendContextName* = "nimQtCameraBackend"
+
+func permissionName*(s: PermissionStatus): string =
+  case s
+  of psGranted: "granted"
+  of psDenied: "denied"
+  of psUndetermined: "undetermined"
+
+when defined(qtcameraTesting):
+  var permissionChangedHookForTest {.threadvar.}: proc() {.gcsafe, raises: [].}
 
 type
   ConsumerBox = ref object
@@ -41,25 +54,77 @@ QtObject:
   type QtCameraBackend* = ref object of QObject
     taps: Table[int, TapEntry]
     nextHandle: int
+    permission: PermissionStatus
+    activation: pointer
 
   proc setup(self: QtCameraBackend)
   proc delete(self: QtCameraBackend)
+  proc onAppActivated(self: QtCameraBackend)
 
   proc newQtCameraBackend*(): QtCameraBackend =
     new(result, delete)
     result.setup
     result.nextHandle = 1
+    result.permission = cameraPermissionStatus()
+    # Raw pointer: the connection is dropped in delete() before the object goes.
+    result.activation = shimOnAppActivated(cast[pointer](result),
+      proc(ctx: pointer) {.cdecl, gcsafe, raises: [].} =
+        {.cast(gcsafe), cast(raises: []).}:
+          cast[QtCameraBackend](ctx).onAppActivated())
 
   proc setup(self: QtCameraBackend) =
     self.QObject.setup
 
   proc delete(self: QtCameraBackend) =
+    shimDisconnectAppActivated(self.activation)
+    self.activation = nil
     for e in self.taps.values:
       e.core.detach()
     self.taps.clear()
     self.QObject.delete
 
   proc tapPulled*(self: QtCameraBackend, handle: int) {.signal.}
+  proc cameraPermissionChanged*(self: QtCameraBackend) {.signal.}
+
+  proc cameraPermissionValue*(self: QtCameraBackend): string {.slot.} =
+    permissionName(self.permission)
+
+  QtProperty[string] cameraPermission:
+    read = cameraPermissionValue
+    notify = cameraPermissionChanged
+
+  proc canOpenCameraSettingsValue*(self: QtCameraBackend): bool {.slot.} =
+    permission.canOpenCameraSettings()
+
+  QtProperty[bool] canOpenCameraSettings:
+    read = canOpenCameraSettingsValue
+
+  proc setPermission(self: QtCameraBackend, s: PermissionStatus) =
+    if s == self.permission:
+      return
+    self.permission = s
+    self.cameraPermissionChanged()
+    when defined(qtcameraTesting):
+      if permissionChangedHookForTest != nil:
+        permissionChangedHookForTest()
+
+  proc refreshCameraPermission*(self: QtCameraBackend) {.slot.} =
+    ## Re-reads the OS status; notifies only when it changed.
+    self.setPermission(cameraPermissionStatus())
+
+  proc onAppActivated(self: QtCameraBackend) =
+    self.refreshCameraPermission()
+
+  proc requestCameraPermission(self: QtCameraBackend) {.slot.} =
+    ## May show the OS prompt; `cameraPermission` updates with the answer.
+    let b = self
+    permission.requestCameraPermission(proc(s: PermissionStatus) {.gcsafe, raises: [].} =
+      {.cast(gcsafe), cast(raises: []).}:
+        b.setPermission(s))
+
+  proc openCameraSettings(self: QtCameraBackend): bool {.slot.} =
+    ## Opens the OS page where camera access is granted (see canOpenCameraSettings).
+    permission.openCameraSettings()
 
   proc entry(self: QtCameraBackend, handle: int): TapEntry =
     self.taps.getOrDefault(handle, nil)
@@ -211,3 +276,12 @@ proc setTapConsumer*(handle: int, cb: FrameCallback) {.gcsafe, raises: [].} =
     e.consumer = if cb == nil: nil else: ConsumerBox(cb: cb)
     if cb == nil and e.enabled:
       e.core.arm() # the default consumer only re-arms after a pull
+
+when defined(qtcameraTesting):
+  proc setCameraPermissionForTest*(b: QtCameraBackend, s: PermissionStatus) =
+    ## Overrides the cached status without notifying.
+    b.permission = s
+
+  proc setCameraPermissionChangedHookForTest*(b: QtCameraBackend,
+      hook: proc() {.gcsafe, raises: [].}) =
+    permissionChangedHookForTest = hook

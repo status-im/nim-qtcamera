@@ -1,2 +1,3 @@
 module NimQtCamera
 FrameTap 1.0 FrameTap.qml
+CameraAccess 1.0 CameraAccess.qml

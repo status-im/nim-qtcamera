@@ -28,6 +28,13 @@ int qtcamera_can_open_camera_settings(void);
 // Opens that page. GUI thread only; returns 1 if the OS accepted the request.
 int qtcamera_open_camera_settings(void);
 
+typedef void (*qtcamera_app_activated_cb)(void* ctx);
+// Calls cb(ctx) on the GUI thread whenever the application becomes active
+// (e.g. back from the OS settings). Needs a QGuiApplication; returns NULL
+// otherwise. Release with qtcamera_disconnect_app_activated.
+void* qtcamera_on_app_activated(void* ctx, qtcamera_app_activated_cb cb);
+void qtcamera_disconnect_app_activated(void* handle);
+
 #ifdef __cplusplus
 }
 #endif

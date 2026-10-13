@@ -46,7 +46,7 @@ endif
 TESTS := $(sort $(filter-out tests/testutils.nim,$(wildcard tests/t*.nim)))
 
 test: | qt-pkgconfig
-	@for t in $(TESTS); do echo "== $$t"; $(NIM) c -r $(NIMFLAGS) $$t || exit 1; done
+	@for t in $(TESTS); do echo "== $$t"; $(NIM) c -r $(NIMFLAGS) -d:qtcameraTesting $$t || exit 1; done
 
 spike: | qt-pkgconfig
 	QTCAMERA_TEST_WITH_CAMERA=1 $(NIM) c -r $(NIMFLAGS) tests/manual/tspike_camera.nim

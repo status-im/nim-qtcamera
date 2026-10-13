@@ -6,6 +6,7 @@
 #include <QtCore/QUrl>
 #include <QtCore/QVariant>
 #include <QtGui/QDesktopServices>
+#include <QtGui/QGuiApplication>
 #include <QtMultimedia/QVideoFrame>
 #include <QtMultimedia/QVideoSink>
 
@@ -155,4 +156,26 @@ extern "C" int qtcamera_open_camera_settings(void)
     }
     return 1;
 #endif
+}
+
+extern "C" void* qtcamera_on_app_activated(void* ctx, qtcamera_app_activated_cb cb)
+{
+    auto* app = qobject_cast<QGuiApplication*>(QCoreApplication::instance());
+    if (!app)
+        return nullptr;
+    auto conn = QObject::connect(app, &QGuiApplication::applicationStateChanged, app,
+                                 [ctx, cb](Qt::ApplicationState state) {
+                                     if (state == Qt::ApplicationActive)
+                                         cb(ctx);
+                                 });
+    return new QMetaObject::Connection(conn);
+}
+
+extern "C" void qtcamera_disconnect_app_activated(void* handle)
+{
+    auto* c = static_cast<QMetaObject::Connection*>(handle);
+    if (!c)
+        return;
+    QObject::disconnect(*c);
+    delete c;
 }

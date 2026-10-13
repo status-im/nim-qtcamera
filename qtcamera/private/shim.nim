@@ -31,3 +31,9 @@ proc shimCanOpenCameraSettings*(): cint {.
   importc: "qtcamera_can_open_camera_settings".}
 proc shimOpenCameraSettings*(): cint {.
   importc: "qtcamera_open_camera_settings".}
+
+type AppActivatedCb* = proc(ctx: pointer) {.cdecl, gcsafe, raises: [].}
+proc shimOnAppActivated*(ctx: pointer, cb: AppActivatedCb): pointer {.
+  importc: "qtcamera_on_app_activated".}
+proc shimDisconnectAppActivated*(handle: pointer) {.
+  importc: "qtcamera_disconnect_app_activated".}
