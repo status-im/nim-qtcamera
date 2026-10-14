@@ -9,3 +9,4 @@ examples/**/main
 tests/manual/*
 !tests/manual/*.nim
 examples/*/main
+build/

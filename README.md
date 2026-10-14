@@ -163,3 +163,30 @@ make example       # examples/camera_preview
 example binaries embed `resources/Info.plist` so camera permission can be
 granted. After editing `shim.cpp`, run `make test EXTRA_NIMFLAGS=-f`: Nim does
 not rebuild `{.compile.}`'d C++ on its own.
+
+## CI
+
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `main`,
+against Qt 6.11 with Qt Multimedia and Nim 2.2.10:
+
+| Job | Runner | What it checks |
+|---|---|---|
+| `test (linux)`, `test (macos)` | ubuntu-24.04, macos-15 | `make deps && make test`, headless (`QT_QPA_PLATFORM=offscreen`), no camera |
+| `build (windows)` | windows-2022 | `make test-build`: every test compiles and links with the clang/MSVC toolchain the Status app uses. `make test` also runs, informational only |
+| `build (ios)` | macos-15 | `make mobile-lib MOBILE=ios-sim` and `MOBILE=ios`: static library for the simulator and device |
+| `build (android)` | ubuntu-24.04 | `make mobile-lib MOBILE=android-arm64`: static library for arm64-v8a |
+
+Windows and mobile are compile/link checks only: there is no camera on the
+runners and the platform permission flows need a real device.
+
+Reproduce a mobile check locally (`<Qt>` is the Qt version directory, e.g.
+`~/Qt/6.11.0`):
+
+```sh
+make mobile-lib MOBILE=ios-sim QMAKE=<Qt>/ios/bin/qmake
+make mobile-lib MOBILE=android-arm64 QMAKE=<Qt>/android_arm64_v8a/bin/qmake
+```
+
+The iOS build adds the QtGui/QtNetwork framework headers by hand because
+prl-to-pc's iOS `Qt6Multimedia.pc` does not list `Qt6Gui`/`Qt6Network` in
+`Requires`; drop that from `scripts/build-mobile.sh` once prl-to-pc is fixed.

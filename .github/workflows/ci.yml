@@ -1,0 +1,180 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NIM_VERSION: "2.2.10"
+  QT_VERSION: "6.11.0"
+
+jobs:
+  test:
+    name: test (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-24.04
+          - name: macos
+            os: macos-15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libgl1-mesa-dev libegl1 libxkbcommon0 libpulse0 libfontconfig1
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          modules: qtmultimedia
+          cache: true
+
+      - name: Install Nim
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch pinned dependencies
+        run: make deps
+
+      - name: Test (headless, no camera)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: make test
+
+  # Windows: build and link every test with the clang/MSVC toolchain the Status
+  # app uses (see the Makefile). Running them is informational only: the
+  # runner has no camera and Qt Multimedia's Windows backend is not exercised
+  # headlessly.
+  build-windows:
+    name: build (windows)
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          arch: win64_msvc2022_64
+          modules: qtmultimedia
+          cache: true
+          # Qt 6.11 moved its Windows packages to per-arch directories
+          # (qt6_6110_msvc2022_64/); aqtinstall 3.3.0, the latest release,
+          # still looks for qt6_6110/ and fails. The fix (miurahr/aqtinstall
+          # PR 1000) is on master but unreleased, so pin a master commit.
+          # Drop this once an aqtinstall release after 3.3.0 ships.
+          aqtsource: git+https://github.com/miurahr/aqtinstall.git@076e1659807d0b362a3ed684d54c2e9c775eb9c7
+
+      - name: Install Nim
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build tools (make, pkg-config)
+        run: choco install -y --no-progress make pkgconfiglite
+
+      - name: Fetch pinned dependencies
+        run: make deps
+
+      - name: Build and link tests
+        run: make test-build
+
+      - name: Run tests (informational)
+        continue-on-error: true
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: make test
+
+  # Mobile: compile the library into a static archive for each target. No
+  # tests run; this catches platform-specific compile and header breakage.
+  build-ios:
+    name: build (ios)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt (iOS kit + host)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          target: ios
+          arch: ios
+          autodesktop: true
+          modules: qtmultimedia
+          cache: true
+
+      - name: Install Nim
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch pinned dependencies
+        run: make deps
+
+      - name: Static lib (iOS simulator, arm64)
+        run: make mobile-lib MOBILE=ios-sim QMAKE="$QT_ROOT_DIR/bin/qmake"
+
+      - name: Static lib (iOS device, arm64)
+        run: make mobile-lib MOBILE=ios QMAKE="$QT_ROOT_DIR/bin/qmake"
+
+  build-android:
+    name: build (android)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config
+
+      - name: Install Qt (Android kit + host)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          target: android
+          arch: android_arm64_v8a
+          autodesktop: true
+          modules: qtmultimedia
+          cache: true
+
+      - name: Install Nim
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch pinned dependencies
+        run: make deps
+
+      # The runner image preinstalls the Android SDK and NDK and exports
+      # ANDROID_NDK_ROOT; scripts/build-mobile.sh picks it up.
+      - name: Static lib (Android arm64-v8a)
+        run: make mobile-lib MOBILE=android-arm64 QMAKE="$QT_ROOT_DIR/bin/qmake"

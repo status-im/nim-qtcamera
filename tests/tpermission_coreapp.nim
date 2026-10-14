@@ -1,8 +1,9 @@
 ## Headless host: only a QCoreApplication exists (no QGuiApplication). Built with
 ## UndefinedBehaviorSanitizer so an invalid QCoreApplication -> QGuiApplication
 ## downcast (e.g. through Qt's qApp macro) aborts the test.
-{.passC: "-fsanitize=undefined -fno-sanitize-recover=undefined".}
-{.passL: "-fsanitize=undefined".}
+when not defined(windows): # clang targeting MSVC has no UBSan runtime here
+  {.passC: "-fsanitize=undefined -fno-sanitize-recover=undefined".}
+  {.passL: "-fsanitize=undefined".}
 
 import std/unittest
 import seaqt/qcoreapplication

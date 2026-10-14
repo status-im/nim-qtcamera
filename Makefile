@@ -31,6 +31,21 @@ deps:
 
 # Exports PKG_CONFIG_PATH (and, in generated mode, the pkg-config wrapper on
 # PATH) so seaqt's compile-time gorge("pkg-config ...") finds Qt.
+# Windows (Git Bash, OS=Windows_NT): build like desktop-app builds Nim on Windows —
+# clang targeting x86_64-pc-windows-msvc, linked with lld against the MSVC runtime
+# (/MD). clang finds MSVC + the Windows SDK itself; inherited LIB/INCLUDE/LIBPATH/
+# VCINSTALLDIR would override that with stale paths. prl-to-pc's pkg-config
+# wrapper is built with the same clang (Qt's Windows kits ship no .pc files, so
+# prl-to-pc runs in generated mode with its committed msvc2022_64 tree).
+ifeq ($(OS),Windows_NT)
+ CLANG := $(shell cygpath -m "$$(command -v clang)" 2>/dev/null)
+ QT_PC_NIM := $(NIM) --cc:clang --clang.exe:"$(CLANG)" --clang.linkerexe:"$(CLANG)"
+ NIMFLAGS += --cc:clang --clang.exe:"$(CLANG)" --clang.linkerexe:"$(CLANG)" \
+   --passC:"--target=x86_64-pc-windows-msvc -fms-runtime-lib=dll" \
+   --passL:"--target=x86_64-pc-windows-msvc -fuse-ld=lld -fms-runtime-lib=dll"
+ unexport LIB INCLUDE LIBPATH VCINSTALLDIR
+endif
+
 -include $(DEPS)/prl-to-pc/qt-pkgconfig.mk
 
 ifeq ($(shell uname -s),Darwin)
@@ -45,6 +60,19 @@ endif
 
 TESTS := $(sort $(filter-out tests/testutils.nim,$(wildcard tests/t*.nim)))
 
+# Compile and link every test without running it (Windows CI build check).
+test-build: | qt-pkgconfig
+	@for t in $(TESTS); do echo "== $$t"; $(NIM) c $(NIMFLAGS) -d:qtcameraTesting $$t || exit 1; done
+
+# Mobile compile check: nim-qtcamera (core + QML layer) as a static library for
+# a Qt mobile kit, e.g.
+#   make mobile-lib MOBILE=ios-sim QMAKE=<Qt>/ios/bin/qmake
+#   make mobile-lib MOBILE=android-arm64 QMAKE=<Qt>/android_arm64_v8a/bin/qmake
+# QMAKE selects the kit; prl-to-pc provides its pkg-config metadata.
+MOBILE ?=
+mobile-lib: | qt-pkgconfig
+	QT_KIT="$(QT_PC_PREFIX)" scripts/build-mobile.sh $(MOBILE)
+
 test: | qt-pkgconfig
 	@for t in $(TESTS); do echo "== $$t"; $(NIM) c -r $(NIMFLAGS) -d:qtcameraTesting $$t || exit 1; done
 
@@ -57,4 +85,4 @@ camera-test: | qt-pkgconfig
 example: | qt-pkgconfig
 	$(NIM) c -r $(NIMFLAGS) examples/camera_preview/main.nim
 
-.PHONY: all deps test spike camera-test example
+.PHONY: all deps test test-build mobile-lib spike camera-test example
