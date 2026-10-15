@@ -1,6 +1,6 @@
 import std/unittest
 import results
-import seaqt/qvideoframe
+import seaqt/[qvideoframe, qvideoframeformat, qsize]
 import ../qtcamera/[types, luma]
 import ./testutils
 
@@ -177,3 +177,68 @@ suite "display-space roi on rotated frames":
     let g = extractLuma(f, LumaOptions(roi: Opt.some NormRect(x: 0.75, y: 0, w: 0.25, h: 0.25),
                                        roiSpace: rsDisplay))
     check allWhite(g.get)
+
+suite "display-space roi: transformation on the surface format":
+  # Phones put the rotation (Android) or rotation + mirror (Darwin) on the
+  # QVideoFrameFormat rather than the frame. Same 64x32 frame, white 16x8 block
+  # at the raw top-left.
+  proc allWhite(g: GrayFrame): bool =
+    g.data.len > 0 and (for b in g.data: (if b < 250: return false); true)
+
+  proc surfaceFrame(fmtId: int, rotation = 0, mirrored = false,
+                    bottomToTop = false): QVideoFrame =
+    let fmt = QVideoFrameFormat.create(QSize.create(64, 32), fmtId.cint)
+    fmt.setRotation(rotation.cint)
+    fmt.setMirrored(mirrored)
+    if bottomToTop:
+      fmt.setScanLineDirection(1) # QVideoFrameFormat::BottomToTop
+    result = QVideoFrame.create(fmt)
+    doAssert result.map(2) # WriteOnly
+    for p in 0 ..< result.planeCount().int:
+      let
+        bpl = result.bytesPerLine(p.cint).int
+        rows = result.mappedBytes(p.cint).int div bpl
+        bits = cast[ptr UncheckedArray[byte]](result.bits(p.cint))
+      for y in 0 ..< rows:
+        for x in 0 ..< bpl:
+          let white = x < (if fmtId == BGRA: 16 * 4 else: 16) and y < 8
+          bits[y * bpl + x] = (if p == 0: (if white: 255'u8 else: 0'u8) else: 128'u8)
+    result.unmap()
+
+  proc display(roi: NormRect): LumaOptions =
+    LumaOptions(roi: Opt.some roi, roiSpace: rsDisplay)
+
+  test "surface rotation, mapped planes":
+    let g = extractLuma(surfaceFrame(NV12, rotation = 90),
+                        display(NormRect(x: 0.75, y: 0, w: 0.25, h: 0.25)))
+    check g.get.width == 16 and g.get.height == 8
+    check allWhite(g.get)
+
+  test "surface rotation, toImage fallback (already applies the surface part)":
+    let g = extractLuma(surfaceFrame(BGRA, rotation = 90),
+                        display(NormRect(x: 0.75, y: 0, w: 0.25, h: 0.25)))
+    check g.get.width * g.get.height == 16 * 8
+    check allWhite(g.get)
+
+  test "surface mirror":
+    let g = extractLuma(surfaceFrame(NV12, mirrored = true),
+                        display(NormRect(x: 0.75, y: 0, w: 0.25, h: 0.25)))
+    check allWhite(g.get)
+
+  test "bottom-to-top scan lines":
+    # raw row 0 is the bottom of the displayed image
+    let g = extractLuma(surfaceFrame(NV12, bottomToTop = true),
+                        display(NormRect(x: 0, y: 0.75, w: 0.25, h: 0.25)))
+    check allWhite(g.get)
+
+  test "surface and frame rotation add up":
+    let f = surfaceFrame(NV12, rotation = 90)
+    f.setRotation(90) # 180 in total: the block shows at the bottom-right
+    let g = extractLuma(f, display(NormRect(x: 0.75, y: 0.75, w: 0.25, h: 0.25)))
+    check allWhite(g.get)
+
+  test "Android front camera: surface rotation + frame mirror":
+    let f = surfaceFrame(NV12, rotation = 270)
+    f.setMirrored(true)
+    check frameTransform(f) == FrameTransform(rotation: 270, mirrored: true)
+    check frameTransform(f, includeSurface = false) == FrameTransform(rotation: 0, mirrored: true)
