@@ -18,7 +18,7 @@ It provides:
 |---|---|
 | `qtcamera/types` | `GrayFrame`, `NormRect`, `CameraInfo`, error/permission enums |
 | `qtcamera/luma` | `extractLuma(QVideoFrame, LumaOptions)`: Y plane for NV12/NV21/YUV420P/YV12/IMC*/Y8, one byte per pixel for UYVY/YUYV/Y16/P010/P016, `toImage()` fallback otherwise; ROI crop + integer downscale |
-| `qtcamera/frametap` | `FrameTap`: `attach(sink)`, `arm()`, `detach()`, `minIntervalMs`, stats |
+| `qtcamera/frametap` | `FrameTap`: `attach(sink)`, `arm()`, `detach()`, `minIntervalMs`, stats (incl. the last frame's rotation/mirroring) |
 | `qtcamera/devices` | `listCameras`, `defaultCamera`, `findDevice`, `CameraDevicesWatcher` |
 | `qtcamera/permission` | `cameraPermissionStatus`, `requestCameraPermission` |
 | `qtcamera/session` | `CameraSession`: device selection, active, errors, preview output, `videoSink` |
@@ -63,6 +63,19 @@ FrameTap { videoSink: preview.videoSink; enabled: camera.active; maxFps: 10; max
 
 `maxFps` defaults to 5. `0` pulls every frame, which costs one luma copy per
 frame on the GUI thread.
+
+### Region of interest
+
+`setRoi(x, y, w, h)` crops the raw frame (normalized 0..1). Phone cameras
+deliver frames with a rotation and/or mirror flag that `VideoOutput` applies
+for display, so a rect measured on the preview (e.g. a scan area mapped
+through `VideoOutput.contentRect`) belongs to `setDisplayRoi(x, y, w, h)`:
+it is in the frame *as displayed* (before the VideoOutput's own `mirrored`),
+and the tap converts it for each frame with that frame's transformation
+(surface format, then `QVideoFrame::rotation()` / `mirrored()`, as Qt
+composes them). `clearRoi()` removes either. `frameRotation` (clockwise
+degrees) and `frameMirrored` report how the last pulled frame is displayed.
+On desktop cameras both are usually 0/false, so the two ROIs coincide.
 
 A Nim library can consume a QML tap's frames through its `handle`:
 

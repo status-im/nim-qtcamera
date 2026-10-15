@@ -67,6 +67,26 @@ suite "FrameTap":
       check tap.stats.lastPixelFormat == NV12
       tap.detach()
 
+  test "stats record how the last frame is displayed":
+    local:
+      let vs = QVideoSink.create()
+      let tap = newFrameTap(proc(f: sink GrayFrame) = discard)
+      tap.attach(vs)
+      tap.arm()
+      let f = nv12(16, 8)
+      f.setRotation(90)
+      f.setMirrored(true)
+      vs.setVideoFrame(f)
+      processEvents()
+      check tap.stats.lastRotation == 90
+      check tap.stats.lastMirrored
+      tap.arm()
+      vs.setVideoFrame(nv12(16, 8))
+      processEvents()
+      check tap.stats.lastRotation == 0
+      check not tap.stats.lastMirrored
+      tap.detach()
+
   test "delivered frame content and options":
     local:
       var last: GrayFrame

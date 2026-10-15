@@ -105,3 +105,75 @@ suite "cropAndDecimate":
     check g.width == 25
     check g.height == 13
     check g.data[1] == gradientY(4, 0)
+
+suite "displayRectToFrame":
+  let d = NormRect(x: 0.1, y: 0.2, w: 0.3, h: 0.4)
+  proc near(a, b: NormRect): bool =
+    abs(a.x - b.x) < 1e-5 and abs(a.y - b.y) < 1e-5 and
+      abs(a.w - b.w) < 1e-5 and abs(a.h - b.h) < 1e-5
+
+  test "identity":
+    check near(displayRectToFrame(d, FrameTransform()), d)
+  test "rotated 90":
+    check near(displayRectToFrame(d, FrameTransform(rotation: 90)),
+               NormRect(x: 0.2, y: 0.6, w: 0.4, h: 0.3))
+  test "rotated 180":
+    check near(displayRectToFrame(d, FrameTransform(rotation: 180)),
+               NormRect(x: 0.6, y: 0.4, w: 0.3, h: 0.4))
+  test "rotated 270":
+    check near(displayRectToFrame(d, FrameTransform(rotation: 270)),
+               NormRect(x: 0.4, y: 0.1, w: 0.4, h: 0.3))
+  test "mirrored":
+    check near(displayRectToFrame(d, FrameTransform(mirrored: true)),
+               NormRect(x: 0.6, y: 0.2, w: 0.3, h: 0.4))
+  test "rotated 90 and mirrored":
+    # un-mirror first: (0.6, 0.2, 0.3, 0.4), then un-rotate 90
+    check near(displayRectToFrame(d, FrameTransform(rotation: 90, mirrored: true)),
+               NormRect(x: 0.2, y: 0.1, w: 0.4, h: 0.3))
+  test "round trip, all transforms":
+    for rot in [0, 90, 180, 270, -90, 450]:
+      for m in [false, true]:
+        let t = FrameTransform(rotation: rot, mirrored: m)
+        check near(displayRectToFrame(frameRectToDisplay(d, t), t), d)
+
+suite "display-space roi on rotated frames":
+  # 64x32 frame, black except a white 16x8 block at the raw top-left. Shown
+  # rotated 90° clockwise, that block sits at the displayed top-right.
+  const displayTopRight = NormRect(x: 0.75, y: 0.0, w: 0.25, h: 0.25)
+
+  proc allWhite(g: GrayFrame): bool =
+    g.data.len > 0 and (for b in g.data: (if b < 250: return false); true)
+
+  proc blockFrame(fmt: int): QVideoFrame =
+    makeFrame(64, 32, fmt, proc(plane: int, p: ptr UncheckedArray[byte], bpl, rows: int) =
+      for y in 0 ..< rows:
+        for x in 0 ..< bpl:
+          let white = x < (if fmt == BGRA: 16 * 4 else: 16) and y < 8
+          p[y * bpl + x] =
+            if plane == 0: (if white: 255'u8 else: 0'u8)
+            else: 128'u8)
+
+  test "mapped planes: display roi follows the frame rotation":
+    let f = blockFrame(NV12)
+    f.setRotation(90)
+    let g = extractLuma(f, LumaOptions(roi: Opt.some displayTopRight, roiSpace: rsDisplay))
+    check g.isSome
+    check g.get.width == 16 and g.get.height == 8
+    check allWhite(g.get)
+    let raw = extractLuma(f, LumaOptions(roi: Opt.some displayTopRight, roiSpace: rsFrame))
+    check not allWhite(raw.get) # same numbers in raw space hit another area
+
+  test "toImage fallback: display roi follows the frame rotation":
+    let f = blockFrame(BGRA)
+    f.setRotation(90)
+    let g = extractLuma(f, LumaOptions(roi: Opt.some displayTopRight, roiSpace: rsDisplay))
+    check g.isSome
+    check g.get.width == 16 and g.get.height == 8
+    check allWhite(g.get)
+
+  test "mirrored frame":
+    let f = blockFrame(NV12)
+    f.setMirrored(true) # the raw top-left block shows at the displayed top-right
+    let g = extractLuma(f, LumaOptions(roi: Opt.some NormRect(x: 0.75, y: 0, w: 0.25, h: 0.25),
+                                       roiSpace: rsDisplay))
+    check allWhite(g.get)

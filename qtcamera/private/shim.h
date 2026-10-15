@@ -22,6 +22,13 @@ void qtcamera_request_camera_permission(void* ctx, qtcamera_permission_cb cb);
 
 void* qtcamera_qobject_from_variant(const void* qvariant);
 
+/* How a QVideoFrame is displayed, composed as Qt's private
+   qNormalizedFrameTransformation without the VideoOutput part: the surface
+   format's (BottomToTop scan lines, rotation, mirror) when `include_surface`,
+   then the frame's own rotation and mirror. Rotation: clockwise degrees. */
+void qtcamera_frame_transform(const void* frame, int include_surface,
+                              int* rotation, int* mirrored);
+
 // 1 when this platform can open the OS page where camera access is granted
 // (macOS, Windows, iOS, Android); 0 otherwise (Linux).
 int qtcamera_can_open_camera_settings(void);

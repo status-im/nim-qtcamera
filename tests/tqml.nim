@@ -108,6 +108,8 @@ Item {
     expect(tap.maxDim === 8, "maxDim round-trips")
     tap.setRoi(0.0, 0.0, 0.5, 0.5)
     tap.clearRoi()
+    expect(tap.frameRotation === 0 && tap.frameMirrored === false, "no frame yet: identity")
+    tap.setDisplayRoi(0.125, 0.25, 0.5, 0.375)
     reporter.ready(tap.handle, vo.videoSink)
   }
 }
@@ -124,6 +126,12 @@ suite "qml FrameTap":
     if reporter.failures.len > 0:
       echo reporter.failures
     check findTap(reporter.handle).isSome
+    # setDisplayRoi from QML: the rect, in display space
+    let tap = findTap(reporter.handle).get
+    let o = tap.options
+    check o.roiSpace == rsDisplay
+    check o.roi == Opt.some(NormRect(x: 0.125, y: 0.25, w: 0.5, h: 0.375))
+    tap.options = LumaOptions(maxDim: o.maxDim) # the frame tests below use no ROI
 
   test "frames pushed into the VideoOutput sink are pulled and reported to QML":
     require reporter.sink != nil
