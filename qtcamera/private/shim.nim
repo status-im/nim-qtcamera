@@ -27,6 +27,9 @@ proc shimRequestCameraPermission*(ctx: pointer, cb: PermissionCb) {.
   importc: "qtcamera_request_camera_permission".}
 proc shimQObjectFromVariant*(v: pointer): pointer {.
   importc: "qtcamera_qobject_from_variant".}
+proc shimFrameTransform*(frame: pointer, includeSurface: cint,
+                         rotation, mirrored: var cint) {.
+  importc: "qtcamera_frame_transform".}
 proc shimCanOpenCameraSettings*(): cint {.
   importc: "qtcamera_can_open_camera_settings".}
 proc shimOpenCameraSettings*(): cint {.

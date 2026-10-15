@@ -193,6 +193,17 @@ QtObject:
       return
     var o = e.core.options
     o.roi = Opt.some(NormRect(x: x.float32, y: y.float32, w: w.float32, h: h.float32))
+    o.roiSpace = rsFrame
+    e.core.options = o
+
+  proc setTapDisplayRoi(self: QtCameraBackend, handle: int, x: float, y: float, w: float, h: float) {.slot.} =
+    ## ROI in the frame as displayed (its rotation and mirroring applied).
+    let e = self.entry(handle)
+    if e == nil:
+      return
+    var o = e.core.options
+    o.roi = Opt.some(NormRect(x: x.float32, y: y.float32, w: w.float32, h: h.float32))
+    o.roiSpace = rsDisplay
     e.core.options = o
 
   proc clearTapRoi(self: QtCameraBackend, handle: int) {.slot.} =
@@ -226,6 +237,14 @@ QtObject:
   proc tapFrameHeight(self: QtCameraBackend, handle: int): int {.slot.} =
     let e = self.entry(handle)
     if e == nil: 0 else: e.core.stats.lastHeight
+
+  proc tapFrameRotation(self: QtCameraBackend, handle: int): int {.slot.} =
+    let e = self.entry(handle)
+    if e == nil: 0 else: e.core.stats.lastRotation
+
+  proc tapFrameMirrored(self: QtCameraBackend, handle: int): bool {.slot.} =
+    let e = self.entry(handle)
+    if e == nil: false else: e.core.stats.lastMirrored
 
 var backend {.threadvar.}: QtCameraBackend
 

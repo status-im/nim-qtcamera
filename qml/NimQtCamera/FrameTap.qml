@@ -20,12 +20,23 @@ QtObject {
     readonly property int pixelFormat: d.pixelFormat
     readonly property int frameWidth: d.frameWidth
     readonly property int frameHeight: d.frameHeight
+    // How the last pulled frame is displayed: clockwise degrees, then mirrored.
+    readonly property int frameRotation: d.frameRotation
+    readonly property bool frameMirrored: d.frameMirrored
 
     signal framePulled()
 
-    // Normalized frame coordinates (0..1), before preview mirroring.
+    // Normalized raw-frame coordinates (0..1), before the frame's rotation
+    // and any mirroring. See setDisplayRoi for rects taken from the preview.
     function setRoi(x, y, w, h) {
         nimQtCameraBackend.setTapRoi(d.handle, x, y, w, h)
+    }
+
+    // Normalized coordinates of the frame as displayed: its rotation and
+    // mirroring applied (e.g. a rect taken from a VideoOutput), before the
+    // VideoOutput's own mirroring. Converted per frame.
+    function setDisplayRoi(x, y, w, h) {
+        nimQtCameraBackend.setTapDisplayRoi(d.handle, x, y, w, h)
     }
 
     function clearRoi() {
@@ -62,6 +73,8 @@ QtObject {
         property int pixelFormat: 0
         property int frameWidth: 0
         property int frameHeight: 0
+        property int frameRotation: 0
+        property bool frameMirrored: false
 
         function refresh() {
             framesSeen = nimQtCameraBackend.tapFramesSeen(handle)
@@ -69,6 +82,8 @@ QtObject {
             pixelFormat = nimQtCameraBackend.tapPixelFormat(handle)
             frameWidth = nimQtCameraBackend.tapFrameWidth(handle)
             frameHeight = nimQtCameraBackend.tapFrameHeight(handle)
+            frameRotation = nimQtCameraBackend.tapFrameRotation(handle)
+            frameMirrored = nimQtCameraBackend.tapFrameMirrored(handle)
         }
     }
 

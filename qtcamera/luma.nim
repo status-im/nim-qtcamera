@@ -9,14 +9,18 @@
 import results
 import seaqt/[qvideoframe, qimage]
 import ./types
+import ./private/shim
 
 export results
 
 type LumaOptions* = object
   roi*: Opt[NormRect]
-    ## Frame coordinates (before any preview mirroring). None/empty = full frame.
+    ## Frame coordinates (see roiSpace). None/empty = full frame.
   maxDim*: int
     ## 0 = no downscale; otherwise the largest side is <= maxDim (integer decimation).
+  roiSpace*: RoiSpace
+    ## rsDisplay: `roi` is in the frame's displayed orientation (its rotation
+    ## and mirroring applied, e.g. a rect taken from a VideoOutput).
 
 const
   fmtYUV420P = 13
@@ -77,6 +81,19 @@ func lumaLayout(pixelFormat: int): Opt[tuple[step, offset: int]] =
   else:
     Opt.none(tuple[step, offset: int])
 
+proc frameTransform*(frame: QVideoFrame, includeSurface = true): FrameTransform =
+  ## How `frame` is displayed. Without the surface part: what is left to apply
+  ## to QVideoFrame::toImage(), which applies the surface transformation itself.
+  var rotation, mirrored: cint
+  shimFrameTransform(frame.h, includeSurface.cint, rotation, mirrored)
+  FrameTransform(rotation: rotation.int, mirrored: mirrored != 0)
+
+func frameRoi(opts: LumaOptions, t: FrameTransform): Opt[NormRect] =
+  if opts.roiSpace == rsDisplay and opts.roi.isSome:
+    Opt.some(displayRectToFrame(opts.roi.get, t))
+  else:
+    opts.roi
+
 proc fromImage(frame: QVideoFrame, opts: LumaOptions): Opt[GrayFrame] =
   let img = frame.toImage()
   if img.isNull():
@@ -90,7 +107,8 @@ proc fromImage(frame: QVideoFrame, opts: LumaOptions): Opt[GrayFrame] =
     return Opt.none(GrayFrame)
   let p = cast[ptr UncheckedArray[byte]](gray.constBits())
   Opt.some(cropAndDecimate(p.toOpenArray(0, bpl * h - 1), w, h, bpl, 1, 0,
-                           opts.roi, opts.maxDim))
+                           opts.frameRoi(frameTransform(frame, includeSurface = false)),
+                           opts.maxDim))
 
 proc extractLuma*(frame: QVideoFrame, opts: LumaOptions): Opt[GrayFrame] =
   ## Returns none for invalid or unconvertible frames.
@@ -111,7 +129,8 @@ proc extractLuma*(frame: QVideoFrame, opts: LumaOptions): Opt[GrayFrame] =
     if bpl * (h - 1) + (w - 1) * step + offset < bytes:
       let p = cast[ptr UncheckedArray[byte]](frame.bits(0))
       g = Opt.some(cropAndDecimate(p.toOpenArray(0, bytes - 1), w, h, bpl,
-                                   step, offset, opts.roi, opts.maxDim))
+                                   step, offset, opts.frameRoi(frameTransform(frame)),
+                                   opts.maxDim))
     frame.unmap()
   if g.isNone:
     g = fromImage(frame, opts)

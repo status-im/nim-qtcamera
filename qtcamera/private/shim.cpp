@@ -208,3 +208,48 @@ extern "C" void qtcamera_disconnect_app_activated(void* handle)
     QObject::disconnect(*c);
     delete c;
 }
+
+namespace {
+// Qt's VideoTransformation composition (qtmultimedia, qvideotransformation_p.h).
+struct Transform
+{
+    int rotation = 0;
+    bool mirrored = false; // horizontally, after the rotation
+
+    void append(int angle) { rotation = (rotation + angle) % 360; }
+    void rotate(int angle)
+    {
+        if (angle) {
+            if (mirrored && angle % 180 != 0)
+                angle += 180;
+            append(angle);
+        }
+    }
+    void mirrorHorizontally(bool m) { mirrored ^= m; }
+    void mirrorVertically(bool m)
+    {
+        if (m) {
+            mirrored ^= true;
+            append(180);
+        }
+    }
+};
+} // namespace
+
+extern "C" void qtcamera_frame_transform(const void* f, int include_surface,
+                                         int* rotation, int* mirrored)
+{
+    const QVideoFrame& frame = *static_cast<const QVideoFrame*>(f);
+    Transform t;
+    if (include_surface) {
+        const QVideoFrameFormat fmt = frame.surfaceFormat();
+        t.mirrorVertically(fmt.scanLineDirection() == QVideoFrameFormat::BottomToTop);
+        t.rotate(int(fmt.rotation()));
+        t.mirrorHorizontally(fmt.isMirrored());
+    }
+    t.rotate(int(frame.rotation()));
+    t.mirrorHorizontally(frame.mirrored());
+    *rotation = t.rotation;
+    *mirrored = t.mirrored ? 1 : 0;
+}
+

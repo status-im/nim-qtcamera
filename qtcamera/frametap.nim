@@ -24,6 +24,8 @@ type
   FrameTapStats* = object
     framesSeen*, framesPulled*, framesSkipped*: int
     lastPixelFormat*, lastWidth*, lastHeight*: int
+    lastRotation*: int   ## how the last frame is displayed: clockwise degrees
+    lastMirrored*: bool  ## ... and mirrored horizontally after the rotation
 
   FrameTapObj = object
     onFrame: FrameCallback
@@ -48,6 +50,9 @@ proc frameThunk(ctx: pointer, frame: pointer) {.cdecl, gcsafe, raises: [].} =
   t.stats.lastPixelFormat = f.pixelFormat().int
   t.stats.lastWidth = f.width().int
   t.stats.lastHeight = f.height().int
+  let shown = frameTransform(f)
+  t.stats.lastRotation = shown.rotation
+  t.stats.lastMirrored = shown.mirrored
   var g = extractLuma(f, t.opts)
   if g.isNone:
     inc t.stats.framesSkipped
