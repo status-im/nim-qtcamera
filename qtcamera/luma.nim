@@ -21,6 +21,9 @@ type LumaOptions* = object
   roiSpace*: RoiSpace
     ## rsDisplay: `roi` is in the frame's displayed orientation (its rotation
     ## and mirroring applied, e.g. a rect taken from a VideoOutput).
+  preview*: Opt[PreviewRoi]
+    ## A rect on the preview item; when set it replaces `roi`, converted for
+    ## each frame from that frame's size and transformation.
 
 const
   fmtYUV420P = 13
@@ -88,8 +91,13 @@ proc frameTransform*(frame: QVideoFrame, includeSurface = true): FrameTransform 
   shimFrameTransform(frame.h, includeSurface.cint, rotation, mirrored)
   FrameTransform(rotation: rotation.int, mirrored: mirrored != 0)
 
-func frameRoi(opts: LumaOptions, t: FrameTransform): Opt[NormRect] =
-  if opts.roiSpace == rsDisplay and opts.roi.isSome:
+func frameRoi(opts: LumaOptions, t: FrameTransform, w, h: int): Opt[NormRect] =
+  ## The crop for a w x h image whose display transformation is `t`.
+  if opts.preview.isSome:
+    let rotated = t.rotation mod 180 != 0
+    let (dw, dh) = if rotated: (h.float32, w.float32) else: (w.float32, h.float32)
+    Opt.some(displayRectToFrame(previewRectToDisplay(opts.preview.get, dw, dh), t))
+  elif opts.roiSpace == rsDisplay and opts.roi.isSome:
     Opt.some(displayRectToFrame(opts.roi.get, t))
   else:
     opts.roi
@@ -107,7 +115,7 @@ proc fromImage(frame: QVideoFrame, opts: LumaOptions): Opt[GrayFrame] =
     return Opt.none(GrayFrame)
   let p = cast[ptr UncheckedArray[byte]](gray.constBits())
   Opt.some(cropAndDecimate(p.toOpenArray(0, bpl * h - 1), w, h, bpl, 1, 0,
-                           opts.frameRoi(frameTransform(frame, includeSurface = false)),
+                           opts.frameRoi(frameTransform(frame, includeSurface = false), w, h),
                            opts.maxDim))
 
 proc extractLuma*(frame: QVideoFrame, opts: LumaOptions): Opt[GrayFrame] =
@@ -129,7 +137,7 @@ proc extractLuma*(frame: QVideoFrame, opts: LumaOptions): Opt[GrayFrame] =
     if bpl * (h - 1) + (w - 1) * step + offset < bytes:
       let p = cast[ptr UncheckedArray[byte]](frame.bits(0))
       g = Opt.some(cropAndDecimate(p.toOpenArray(0, bytes - 1), w, h, bpl,
-                                   step, offset, opts.frameRoi(frameTransform(frame)),
+                                   step, offset, opts.frameRoi(frameTransform(frame), w, h),
                                    opts.maxDim))
     frame.unmap()
   if g.isNone:
