@@ -16,6 +16,7 @@ QtObject:
     completed: bool
     accessStatus: string
     accessCanOpen: bool
+    accessCanRequest: string ## String(): an undefined property must not pass as false
     accessReported: bool
 
   proc setup(self: Reporter)
@@ -45,9 +46,10 @@ QtObject:
 
   proc setEnabled*(self: Reporter, enabled: bool) {.signal.}
 
-  proc access(self: Reporter, status: string, canOpen: bool) {.slot.} =
+  proc access(self: Reporter, status: string, canOpen: bool, canRequest: string) {.slot.} =
     self.accessStatus = status
     self.accessCanOpen = canOpen
+    self.accessCanRequest = canRequest
     self.accessReported = true
 
 type Probe = object
@@ -312,7 +314,7 @@ import QtQuick
 import NimQtCamera 1.0
 Item {
   CameraAccess { id: access }
-  Component.onCompleted: reporter.access(access.status, access.canOpenSettings)
+  Component.onCompleted: reporter.access(access.status, access.canOpenSettings, String(access.canRequest))
 }
 """)
     for i in 0 ..< 10:
@@ -320,4 +322,10 @@ Item {
     check r.accessReported
     check r.accessStatus == qtCameraBackend().cameraPermissionValue()
     check r.accessCanOpen == canOpenCameraSettings()
+    # Asking again can still show the OS prompt: when undetermined, and on
+    # Android after an ordinary denial (Qt reports it as "denied" for the rest
+    # of the process, "don't ask again" or not).
+    let expected = r.accessStatus == "undetermined" or
+                   (r.accessStatus == "denied" and defined(android))
+    check r.accessCanRequest == $expected
     e.delete()
