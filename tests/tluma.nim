@@ -242,3 +242,83 @@ suite "display-space roi: transformation on the surface format":
     f.setMirrored(true)
     check frameTransform(f) == FrameTransform(rotation: 270, mirrored: true)
     check frameTransform(f, includeSurface = false) == FrameTransform(rotation: 0, mirrored: true)
+
+suite "previewRectToDisplay (as VideoOutput lays a frame out)":
+  proc near(a, b: NormRect): bool =
+    abs(a.x - b.x) < 1e-4 and abs(a.y - b.y) < 1e-4 and
+      abs(a.w - b.w) < 1e-4 and abs(a.h - b.h) < 1e-4
+
+  # 1600x900 frame in a 400x430 item; a centred 286x286 scan rect.
+  let p = PreviewRoi(x: 57, y: 72, w: 286, h: 286, itemWidth: 400, itemHeight: 430,
+                     fill: pfCrop)
+
+  test "crop: the video is scaled to cover the item, centred":
+    # scale = max(400/1600, 430/900) = 0.47778 -> 764.4 x 430, x offset -182.2
+    let r = previewRectToDisplay(p, 1600, 900)
+    check near(r, NormRect(x: (57 + 182.2) / 764.4, y: 72 / 430,
+                           w: 286 / 764.4, h: 286 / 430))
+
+  test "fit: the video is scaled to fit, letterboxed":
+    var q = p
+    q.fill = pfFit
+    # scale = min(0.25, 0.4778) = 0.25 -> 400 x 225, y offset 102.5
+    let r = previewRectToDisplay(q, 1600, 900)
+    check near(r, NormRect(x: 57 / 400, y: 0.0, w: 286 / 400, h: 1.0))
+
+  test "stretch: the video fills the item":
+    var q = p
+    q.fill = pfStretch
+    check near(previewRectToDisplay(q, 1600, 900),
+               NormRect(x: 57 / 400, y: 72 / 430, w: 286 / 400, h: 286 / 430))
+
+  test "mirrored preview: x flipped back":
+    var q = p
+    q.mirrored = true
+    q.x = 20 # off-centre so the flip shows
+    let plain = previewRectToDisplay(PreviewRoi(x: 20, y: 72, w: 286, h: 286,
+                  itemWidth: 400, itemHeight: 430, fill: pfCrop), 1600, 900)
+    check near(previewRectToDisplay(q, 1600, 900),
+               NormRect(x: 1 - plain.x - plain.w, y: plain.y, w: plain.w, h: plain.h))
+
+  test "degenerate input: the whole frame":
+    check near(previewRectToDisplay(p, 0, 900), NormRect(x: 0, y: 0, w: 1, h: 1))
+    var q = p
+    q.itemWidth = 0
+    check near(previewRectToDisplay(q, 1600, 900), NormRect(x: 0, y: 0, w: 1, h: 1))
+
+suite "preview roi through extractLuma":
+  # 160x90 frame, black except a white 20x20 block at raw (30..50, 35..55),
+  # left of centre. Preview: 40x43 item, crop, a centred 28x28 scan rect:
+  # raw x ≈ 0.31..0.69 is inside, the block (x 0.19..0.31) is not.
+  proc blockFrame(rotation = 0): QVideoFrame =
+    result = makeFrame(160, 90, NV12, proc(plane: int, p: ptr UncheckedArray[byte], bpl, rows: int) =
+      for y in 0 ..< rows:
+        for x in 0 ..< bpl:
+          p[y * bpl + x] =
+            if plane == 0: (if x in 30 ..< 50 and y in 35 ..< 55: 255'u8 else: 0'u8)
+            else: 128'u8)
+    result.setRotation(rotation.cint)
+
+  let scan = PreviewRoi(x: 6, y: 7.5, w: 28, h: 28, itemWidth: 40, itemHeight: 43, fill: pfCrop)
+
+  proc hasWhite(g: GrayFrame): bool =
+    for b in g.data:
+      if b > 250: return true
+    false
+
+  test "only what the preview shows inside the scan rect is extracted":
+    let g = extractLuma(blockFrame(), LumaOptions(preview: Opt.some scan))
+    check g.isSome
+    check not hasWhite(g.get)
+    # the block is inside when the scan rect sits over it on screen:
+    # display x 0.19..0.31 -> item x = 0.19*76.4-18.2 ≈ -3.7 .. 5.5 (cropped off)
+    var left = scan
+    left.x = 0
+    left.w = 12
+    check hasWhite(extractLuma(blockFrame(), LumaOptions(preview: Opt.some left)).get)
+
+  test "the frame's own size decides the crop, not an earlier layout":
+    # the same preview over a portrait (rotated) frame maps elsewhere
+    let g = extractLuma(blockFrame(90), LumaOptions(preview: Opt.some scan))
+    check g.isSome
+    check g.get.width < g.get.height or g.get.width == g.get.height # portrait crop of raw

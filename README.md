@@ -77,6 +77,15 @@ composes them). `clearRoi()` removes either. `frameRotation` (clockwise
 degrees) and `frameMirrored` report how the last pulled frame is displayed.
 On desktop cameras both are usually 0/false, so the two ROIs coincide.
 
+For a scan area drawn over the preview, prefer
+`setPreviewRoi(x, y, w, h, previewWidth, previewHeight, fillMode, mirrored)`:
+the rect in preview-item pixels plus the preview's size, `VideoOutput.fillMode`
+and `mirrored`. The tap lays out each frame itself, from that frame's own size
+and rotation, as VideoOutput does. A rect derived from `VideoOutput.contentRect`
+lags: contentRect follows a new frame size only after a queued update, so the
+first frames, and those after a size or rotation change, would be cropped
+with the previous layout.
+
 A Nim library can consume a QML tap's frames through its `handle`:
 
 ```nim

@@ -194,6 +194,7 @@ QtObject:
     var o = e.core.options
     o.roi = Opt.some(NormRect(x: x.float32, y: y.float32, w: w.float32, h: h.float32))
     o.roiSpace = rsFrame
+    o.preview = Opt.none(PreviewRoi)
     e.core.options = o
 
   proc setTapDisplayRoi(self: QtCameraBackend, handle: int, x: float, y: float, w: float, h: float) {.slot.} =
@@ -204,6 +205,25 @@ QtObject:
     var o = e.core.options
     o.roi = Opt.some(NormRect(x: x.float32, y: y.float32, w: w.float32, h: h.float32))
     o.roiSpace = rsDisplay
+    o.preview = Opt.none(PreviewRoi)
+    e.core.options = o
+
+  proc setTapPreviewRoi(self: QtCameraBackend, handle: int, x: float, y: float,
+                        w: float, h: float, itemWidth: float, itemHeight: float,
+                        fillMode: int, mirrored: bool) {.slot.} =
+    ## A rect on the preview item and how the preview lays the video out;
+    ## converted for each frame from that frame's own size and transformation.
+    let e = self.entry(handle)
+    if e == nil:
+      return
+    var o = e.core.options
+    o.preview = Opt.some(PreviewRoi(
+      x: x.float32, y: y.float32, w: w.float32, h: h.float32,
+      itemWidth: itemWidth.float32, itemHeight: itemHeight.float32,
+      fill: (if fillMode in ord(PreviewFill.low) .. ord(PreviewFill.high): PreviewFill(fillMode)
+             else: pfCrop),
+      mirrored: mirrored))
+    o.roi = Opt.none(NormRect)
     e.core.options = o
 
   proc clearTapRoi(self: QtCameraBackend, handle: int) {.slot.} =
@@ -212,6 +232,7 @@ QtObject:
       return
     var o = e.core.options
     o.roi = Opt.none(NormRect)
+    o.preview = Opt.none(PreviewRoi)
     e.core.options = o
 
   proc tapCount*(self: QtCameraBackend): int {.slot.} =

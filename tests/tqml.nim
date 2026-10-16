@@ -16,6 +16,7 @@ QtObject:
     completed: bool
     accessStatus: string
     accessCanOpen: bool
+    previewAfterSet: Opt[PreviewRoi]
     accessCanRequest: string ## String(): an undefined property must not pass as false
     accessReported: bool
 
@@ -45,6 +46,11 @@ QtObject:
     inc self.pulledSignals
 
   proc setEnabled*(self: Reporter, enabled: bool) {.signal.}
+
+  proc previewSet(self: Reporter, handle: int) {.slot.} =
+    let t = findTap(handle)
+    if t.isSome:
+      self.previewAfterSet = t.get.options.preview
 
   proc access(self: Reporter, status: string, canOpen: bool, canRequest: string) {.slot.} =
     self.accessStatus = status
@@ -111,6 +117,8 @@ Item {
     tap.setRoi(0.0, 0.0, 0.5, 0.5)
     tap.clearRoi()
     expect(tap.frameRotation === 0 && tap.frameMirrored === false, "no frame yet: identity")
+    tap.setPreviewRoi(10, 20, 30, 40, 100, 200, 2, true) // VideoOutput.PreserveAspectCrop
+    reporter.previewSet(tap.handle)
     tap.setDisplayRoi(0.125, 0.25, 0.5, 0.375)
     reporter.ready(tap.handle, vo.videoSink)
   }
@@ -128,9 +136,13 @@ suite "qml FrameTap":
     if reporter.failures.len > 0:
       echo reporter.failures
     check findTap(reporter.handle).isSome
-    # setDisplayRoi from QML: the rect, in display space
+    # setPreviewRoi from QML: the preview rect and layout
+    check reporter.previewAfterSet == Opt.some(PreviewRoi(x: 10, y: 20, w: 30, h: 40,
+      itemWidth: 100, itemHeight: 200, fill: pfCrop, mirrored: true))
+    # setDisplayRoi from QML: the rect, in display space (and no preview rect)
     let tap = findTap(reporter.handle).get
     let o = tap.options
+    check o.preview.isNone
     check o.roiSpace == rsDisplay
     check o.roi == Opt.some(NormRect(x: 0.125, y: 0.25, w: 0.5, h: 0.375))
     tap.options = LumaOptions(maxDim: o.maxDim) # the frame tests below use no ROI

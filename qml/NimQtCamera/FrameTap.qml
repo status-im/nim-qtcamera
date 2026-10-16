@@ -39,6 +39,16 @@ QtObject {
         nimQtCameraBackend.setTapDisplayRoi(d.handle, x, y, w, h)
     }
 
+    // A rect on the preview item (item pixels), with the preview's size, its
+    // fillMode (VideoOutput.fillMode) and mirrored. Mapped for each frame from
+    // that frame's own size and rotation, as VideoOutput lays it out, so it
+    // holds from the first frame and through size or rotation changes
+    // (VideoOutput.contentRect follows a new frame size only later).
+    function setPreviewRoi(x, y, w, h, previewWidth, previewHeight, fillMode, mirrored) {
+        nimQtCameraBackend.setTapPreviewRoi(d.handle, x, y, w, h, previewWidth,
+                                            previewHeight, fillMode, mirrored)
+    }
+
     function clearRoi() {
         nimQtCameraBackend.clearTapRoi(d.handle)
     }
