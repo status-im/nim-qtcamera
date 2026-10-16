@@ -110,7 +110,7 @@ QML: `NimQtCamera.CameraAccess`
 ```qml
 import NimQtCamera 1.0
 
-CameraAccess { id: access; Component.onCompleted: if (status === "undetermined") request() }
+CameraAccess { id: access; Component.onCompleted: if (canRequest) request() }
 Camera { active: access.granted }
 Button {
     visible: access.status === "denied" && access.canOpenSettings
@@ -123,6 +123,13 @@ Button {
 application becomes active, so coming back from the settings starts the camera
 without restarting anything. The component is named `CameraAccess` so it
 doesn't clash with QtCore's `CameraPermission` when both are imported.
+
+`canRequest` says whether `request()` may still show the OS prompt: when the
+status is `"undetermined"`, and on Android also after an ordinary denial.
+Android lets an app ask again until the user picks "don't ask again", but Qt
+reports every denial as `"denied"` for the rest of the process, so on Android
+the app requests again and lets the OS decide (no prompt: the status stays
+`"denied"`). On iOS and macOS a denial is final.
 
 What "open settings" opens:
 
